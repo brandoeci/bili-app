@@ -1,4 +1,4 @@
-# EurekaVision
+# Bili
 
 Sistema de visión asistiva basado en FastAPI. Expone detección, streaming
 MJPEG, eventos por WebSocket, alertas de audio y descripción de escena local o
