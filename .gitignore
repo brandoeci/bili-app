@@ -1,0 +1,10 @@
+﻿.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+models/*
+!models/.gitkeep
+.DS_Store
+videostest/*.mp4
+data/

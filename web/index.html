@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vision Asistiva</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background: #111827; color: #f9fafb; margin: 0; padding: 24px; }
+      .container { max-width: 960px; margin: 0 auto; }
+      .panel { background: rgba(17,24,39,0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 18px; }
+      img { width: 100%; border-radius: 10px; background: #1f2937; }
+      .actions { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+      button { background: #2563eb; color: white; border: none; padding: 12px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+      button.secondary { background: #374151; }
+      .status { margin-top: 16px; font-size: 14px; color: #cbd5e1; }
+      .description, .detections { margin-top: 16px; white-space: pre-wrap; line-height: 1.5; }
+      .alert { margin-top: 16px; font-weight: 600; color: #fca5a5; min-height: 1.5em; }
+      button:focus-visible, input:focus-visible { outline: 3px solid #fbbf24; outline-offset: 2px; }
+      .detections span { display: inline-block; margin: 4px; padding: 4px 8px; background: #374151; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Vision Asistiva</h1>
+      <div class="panel">
+        <img src="/stream.mjpg" alt="Vista de cámara" />
+      </div>
+      <div class="actions" role="toolbar" aria-label="Acciones">
+        <button id="describe">Describir escena (D)</button>
+        <button id="read">Leer texto (T)</button>
+        <button class="secondary" id="repeat">Repetir (R)</button>
+        <button class="secondary" id="local">Solo local</button>
+        <button class="secondary" id="gemini">Solo Gemini</button>
+      </div>
+      <form class="actions" id="ask-form">
+        <label for="question" style="align-self:center">Pregunta (P):</label>
+        <input id="question" type="text" placeholder="¿Hay una puerta cerca?" style="flex:1;min-width:200px;padding:10px;border-radius:8px;border:1px solid #4b5563;background:#1f2937;color:#f9fafb" />
+        <button type="submit">Preguntar</button>
+      </form>
+      <div class="status" id="status" role="status" aria-live="polite">Sistema listo.</div>
+      <div class="description" id="description"></div>
+      <div class="alert" id="alert"></div>
+      <div class="detections" id="paths" aria-label="Estado del camino"></div>
+      <div class="detections" id="detections"></div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const status = $('status');
+      const labelsEs = {
+        person: 'persona', car: 'carro', truck: 'camión', bus: 'bus',
+        motorcycle: 'motocicleta', bicycle: 'bicicleta', chair: 'silla',
+        dog: 'perro', cat: 'gato', 'traffic light': 'semáforo',
+        'stop sign': 'señal de pare', bench: 'banca', door: 'puerta', stairs: 'escaleras'
+      };
+      const sides = { left: 'izquierda', right: 'derecha', center: 'al frente' };
+      let busy = false;
+
+      function showDescription(d) {
+        const note = d.degraded ? ' (resumen básico: el modelo no respondió)' : '';
+        status.textContent = `Fuente: ${d.source} · ${Math.round(d.latency_ms)} ms${note}`;
+        $('description').textContent = d.text;
+      }
+
+      async function request(body, label) {
+        if (busy) return;
+        busy = true;
+        status.textContent = `${label}...`;
+        try {
+          const response = await fetch('/v1/describe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speak: true, task: 'scene', mode: 'auto', ...body })
+          });
+          const json = await response.json();
+          if (!response.ok) throw new Error(json.detail || response.statusText);
+          showDescription(json);
+        } catch (error) {
+          status.textContent = `No se pudo describir: ${error.message}`;
+        } finally {
+          busy = false;
+        }
+      }
+
+      $('describe').addEventListener('click', () => request({}, 'Describiendo la escena'));
+      $('read').addEventListener('click', () => request({ task: 'read_text' }, 'Leyendo texto'));
+      $('repeat').addEventListener('click', async () => {
+        const response = await fetch('/v1/repeat', { method: 'POST' });
+        status.textContent = response.ok ? 'Repitiendo el último mensaje.' : 'No hay mensajes para repetir.';
+      });
+      $('local').addEventListener('click', () => request({ mode: 'local' }, 'Describiendo (local)'));
+      $('gemini').addEventListener('click', () => request({ mode: 'gemini' }, 'Describiendo (Gemini)'));
+      $('ask-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const question = $('question').value.trim();
+        if (question) request({ task: 'ask', question }, 'Respondiendo');
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.target.tagName === 'INPUT' || event.metaKey || event.ctrlKey || event.altKey) return;
+        const key = event.key.toLowerCase();
+        if (key === 'd') $('describe').click();
+        else if (key === 't') $('read').click();
+        else if (key === 'r') $('repeat').click();
+        else if (key === 'p') { event.preventDefault(); $('question').focus(); }
+      });
+
+      function connect() {
+        const events = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`);
+        events.onclose = () => setTimeout(connect, 1500);
+        events.onmessage = (message) => {
+          const event = JSON.parse(message.data);
+          if (event.type === 'description') { showDescription(event.data); return; }
+          if (event.type === 'description_error') { status.textContent = `Error de descripción: ${event.error}`; return; }
+          if (event.type === 'alert') { $('alert').textContent = event.data.text; return; }
+          if (event.type !== 'frame') return;
+          const nav = event.data.navigation;
+          if (nav && nav.sectors && nav.sectors.center) {
+            const names = { left: 'Izquierda', center: 'Frente', right: 'Derecha' };
+            const states = { free: 'libre', caution: 'precaución', blocked: 'BLOQUEADO' };
+            $('paths').innerHTML = ['left', 'center', 'right'].map((k) =>
+              `<span>${names[k]}: ${states[nav.sectors[k].state]} (${nav.sectors[k].clear_m} m)</span>`).join('') +
+              (nav.hazards.length ? `<span>Peligros: ${nav.hazards.map((h) => h.kind).join(', ')}</span>` : '');
+          }
+          const detections = (event.data.detections || []).filter((item) => item.priority !== 'P3');
+          $('detections').innerHTML =
+            `<strong>Relevante ahora (${detections.length}):</strong> ` +
+            detections.map((item) =>
+              `<span>${labelsEs[item.label] || item.label} · ${sides[item.direction] || 'al frente'}` +
+              `${item.distance_m != null ? ' · ' + item.distance_m.toFixed(1) + ' m' : ''}</span>`
+            ).join('');
+        };
+      }
+      connect();
+    </script>
+  </body>
+</html>

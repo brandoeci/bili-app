@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0b0f" />
+  <title>Bili</title>
+  <style>
+    :root { --bg:#0b0b0f; --fg:#f5f5f7; --muted:#a1a1aa; --accent:#ffd60a; --danger:#ff453a; --ok:#32d74b; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family: system-ui, sans-serif; }
+    main { min-height:100%; display:flex; flex-direction:column; gap:14px; padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom)); }
+    h1 { margin:0; font-size:1.4rem; }
+    #state { font-size:1.15rem; line-height:1.4; min-height:3em; }
+    #alert { font-size:1.8rem; font-weight:700; line-height:1.25; min-height:3.5em; }
+    #alert.p0 { color:var(--danger); }
+    #alert.p1 { color:var(--accent); }
+    button { font:inherit; font-size:1.3rem; font-weight:700; border:0; border-radius:16px; padding:22px 16px; color:#000; background:var(--accent); width:100%; }
+    button.secondary { background:#26262e; color:var(--fg); }
+    button:focus-visible { outline:4px solid #fff; outline-offset:3px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    video { width:100%; border-radius:12px; background:#000; max-height:30vh; object-fit:cover; }
+    #sectors { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-size:.95rem; color:var(--muted); }
+    #sectors div { padding:8px; border-radius:10px; background:#17171d; text-align:center; }
+    #sectors .caution { color:var(--accent); } #sectors .blocked { color:var(--danger); font-weight:700; }
+    #stats { font-size:.8rem; color:var(--muted); }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Bili</h1>
+  <button id="start" aria-describedby="aviso">Empezar a guiarme</button>
+  <p id="aviso" style="color:var(--muted);font-size:.95rem;margin:0">
+    Ayuda complementaria: no reemplaza el bastón ni el perro guía. Lleve el celular con la cámara trasera hacia adelante.
+  </p>
+
+  <div id="live" class="hidden">
+    <div id="state" role="status" aria-live="off">Conectando…</div>
+    <div id="alert" role="alert" aria-live="assertive"></div>
+    <div id="sectors" aria-hidden="true"><div id="s-left">Izq.</div><div id="s-center">Frente</div><div id="s-right">Der.</div></div>
+    <video id="cam" playsinline muted aria-hidden="true"></video>
+    <div class="row" style="margin-top:12px">
+      <button id="describe">Describir</button>
+      <button id="repeat" class="secondary">Repetir</button>
+    </div>
+    <button id="stop" class="secondary" style="margin-top:12px">Detener</button>
+    <div id="stats"></div>
+  </div>
+  <canvas id="cv" class="hidden"></canvas>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const SEND_W = 640, JPEG_Q = 0.6, SEND_FPS = 8, MAX_BUFFERED = 250_000;
+  const MAX_AGE_MS = { P0: 4000, P1: 4000, P2: 20000, P3: 10000 };
+  const RANK = { P0: 0, P1: 1, P2: 2, P3: 3 };
+  let stream = null, wsFrames = null, wsEvents = null, timer = null, wake = null, running = false;
+  let sent = 0, dropped = 0, lastFrame = null;
+
+  /* ---------- Voz: cola con prioridad (misma política que el servidor) ---------- */
+  let queue = [], speaking = null, voice = null;
+  function pickVoice() {
+    const vs = speechSynthesis.getVoices();
+    voice = vs.find(v => /es[-_]CO/i.test(v.lang)) || vs.find(v => /es[-_](MX|US|419)/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null;
+  }
+  speechSynthesis.onvoiceschanged = pickVoice; pickVoice();
+
+  function speak(text, priority = 'P3', interruptible = true) {
+    const rank = RANK[priority] ?? 3;
+    if (rank === 0) {
+      queue = queue.filter(i => i.rank === 0);
+      if (speaking && speaking.rank > 0 && speaking.interruptible) speechSynthesis.cancel();
+      if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
+    } else if (rank === 2) {
+      queue = queue.filter(i => i.rank !== 2);
+    }
+    queue.push({ text, rank, priority, interruptible, t: performance.now() });
+    queue.sort((a, b) => a.rank - b.rank || a.t - b.t);
+    pump();
+  }
+  function pump() {
+    if (speaking || !queue.length) return;
+    const item = queue.shift();
+    if (performance.now() - item.t > (MAX_AGE_MS[item.priority] ?? 10000)) return pump(); // ya caducó
+    const u = new SpeechSynthesisUtterance(item.text);
+    u.lang = voice ? voice.lang : 'es-CO'; if (voice) u.voice = voice;
+    u.rate = 1.1;
+    speaking = item;
+    u.onend = u.onerror = () => { speaking = null; pump(); };
+    speechSynthesis.speak(u);
+  }
+
+  /* ---------- Cámara y envío de frames ---------- */
+  async function openCamera() {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const v = $('cam'); v.srcObject = stream; await v.play();
+  }
+  function startSending() {
+    const v = $('cam'), c = $('cv'), ctx = c.getContext('2d');
+    timer = setInterval(() => {
+      if (!wsFrames || wsFrames.readyState !== 1 || !v.videoWidth) return;
+      if (wsFrames.bufferedAmount > MAX_BUFFERED) { dropped++; return; } // red lenta: se salta el frame, no se acumula
+      c.width = SEND_W; c.height = Math.round(SEND_W * v.videoHeight / v.videoWidth);
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob(b => { if (b && wsFrames && wsFrames.readyState === 1) { wsFrames.send(b); sent++; } }, 'image/jpeg', JPEG_Q);
+    }, 1000 / SEND_FPS);
+  }
+
+  /* ---------- WebSockets ---------- */
+  const base = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+  function connect() {
+    if (!running) return;
+    wsFrames = new WebSocket(`${base()}/ws/frames`); wsFrames.binaryType = 'arraybuffer';
+    wsFrames.onclose = () => { if (running) setTimeout(connect, 1500); };
+    wsEvents = new WebSocket(`${base()}/ws/events`);
+    wsEvents.onopen = () => { $('state').textContent = 'Conectado.'; };
+    wsEvents.onclose = () => { if (running) $('state').textContent = 'Sin conexión con el servidor. Reintentando…'; };
+    wsEvents.onmessage = (m) => {
+      const e = JSON.parse(m.data);
+      if (e.type === 'speak') speak(e.text, e.priority, e.interruptible !== false);
+      else if (e.type === 'alert') {
+        const a = $('alert'); a.textContent = e.data.text; a.className = e.data.priority === 'P0' ? 'p0' : e.data.priority === 'P1' ? 'p1' : '';
+      } else if (e.type === 'description') { $('state').textContent = e.data.text; }
+      else if (e.type === 'frame') {
+        lastFrame = performance.now();
+        const s = e.data.navigation && e.data.navigation.sectors;
+        if (s) for (const k of ['left', 'center', 'right']) if (s[k]) {
+          const el = $('s-' + k); el.className = s[k].state; el.textContent = `${{left:'Izq.',center:'Frente',right:'Der.'}[k]} ${s[k].clear_m} m`;
+        }
+        $('stats').textContent = `${e.data.fps} fps · ${Math.round(e.data.latency_ms.total)} ms · enviados ${sent}, omitidos ${dropped}`;
+      }
+    };
+  }
+  // Si el servidor deja de contestar, la persona debe saberlo: no puede ver que la pantalla se congeló.
+  setInterval(() => {
+    if (running && lastFrame && performance.now() - lastFrame > 5000) {
+      lastFrame = null; speak('Perdí la conexión con el servidor. Use su bastón.', 'P0');
+    }
+  }, 2000);
+
+  /* ---------- Controles ---------- */
+  async function start() {
+    $('start').disabled = true;
+    speechSynthesis.speak(new SpeechSynthesisUtterance('')); // desbloquea la voz con el gesto del usuario
+    try {
+      await openCamera();
+    } catch (err) {
+      $('start').disabled = false;
+      const msg = (location.protocol !== 'https:' && location.hostname !== 'localhost')
+        ? 'La cámara solo funciona por HTTPS. Abra la dirección que empieza por https.' : 'No se pudo abrir la cámara. Revise el permiso.';
+      $('aviso').textContent = msg; speak(msg, 'P0'); return;
+    }
+    running = true;
+    $('start').classList.add('hidden'); $('live').classList.remove('hidden');
+    try { wake = await navigator.wakeLock.request('screen'); } catch (_) {}
+    connect(); startSending();
+    speak('Bili activado. Esperando al sistema.', 'P1', false);
+  }
+  function stop() {
+    running = false; clearInterval(timer);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (wsFrames) wsFrames.close(); if (wsEvents) wsEvents.close();
+    if (wake) wake.release().catch(() => {});
+    speechSynthesis.cancel(); queue = []; speaking = null;
+    $('live').classList.add('hidden'); $('start').classList.remove('hidden'); $('start').disabled = false;
+    $('state').textContent = '';
+  }
+  document.addEventListener('visibilitychange', async () => {
+    if (running && document.visibilityState === 'visible') { try { wake = await navigator.wakeLock.request('screen'); } catch (_) {} }
+  });
+  $('start').addEventListener('click', start);
+  $('stop').addEventListener('click', stop);
+  $('repeat').addEventListener('click', () => fetch('/v1/repeat', { method: 'POST' }));
+  $('describe').addEventListener('click', () => fetch('/v1/describe', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'auto', task: 'scene', speak: true }) }).catch(() => speak('No pude describir la escena.', 'P1')));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+camera:
+  width: 1280
+  height: 720
+  fps: 30
+  process_size: 640
+
+detector:
+  model: models/yolo26s.pt
+  conf: 0.35
+  iou: 0.5
+  classes: null
+
+depth:
+  enabled: true
+  model: depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf  # o ...Outdoor-Small-hf
+  every_n_frames: 3
+
+alerts:
+  critical_distance_m: 2.5
+  release_distance_m: 3.2
+  cooldown_s: 4
+  min_frames: 2
+  max_speech_rate_s: 1.5
+
+audio:
+  voice: Soledad
+  rate_wpm: 190
+  earcons: true
+
+scene:
+  mode: auto
+  auto_interval_s: 20
+  heuristic_interval_s: 60
+  vlm_model: mlx-community/Qwen2.5-VL-3B-Instruct-4bit
+  vlm_max_side_px: 512
+  gemini_max_side_px: 640

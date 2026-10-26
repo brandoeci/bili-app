@@ -1,0 +1,20 @@
+[project]
+name = "vision-asistiva"
+version = "0.2.0"
+description = "Asistente de visión para personas con discapacidad visual: alertas, navegación y descripción de escena."
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+packages = ["app", "app.api", "app.audio", "app.core", "app.scene"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]
