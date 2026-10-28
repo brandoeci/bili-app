@@ -53,6 +53,25 @@ def map_name(name: str) -> str | None:
     return None
 
 
+def parse_overrides(items: list[str]) -> dict[str, dict[str, str]]:
+    """'manhole:0=manhole' -> {'manhole': {'0': 'manhole'}}. Para clases cuyo nombre no dice nada (ej. '0')."""
+    out: dict[str, dict[str, str]] = {}
+    for item in items:
+        try:
+            left, target = item.split('=', 1)
+            src, cls = left.split(':', 1)
+        except ValueError:
+            sys.exit(f'--map mal formado: {item!r} (esperado FUENTE:CLASE=DESTINO)')
+        if target not in BILI_CLASSES:
+            sys.exit(f'--map: destino desconocido {target!r}. Opciones: {", ".join(BILI_CLASSES)}')
+        out.setdefault(src, {})[cls] = target
+    return out
+
+
+def resolve(src: Path, name: str, overrides: dict[str, dict[str, str]]) -> str | None:
+    return overrides.get(src.name, {}).get(name) or map_name(name)
+
+
 def read_names(src: Path) -> list[str]:
     cfg = yaml.safe_load((src / 'data.yaml').read_text(encoding='utf-8'))
     names = cfg['names']
@@ -74,14 +93,15 @@ def to_bbox(parts: list[str]) -> tuple[float, float, float, float] | None:
     return None
 
 
-def list_sources(sources: list[Path]) -> None:
+def list_sources(sources: list[Path], overrides: dict[str, dict[str, str]] | None = None) -> None:
     for src in sources:
         print(f'\n{src}')
         for i, name in enumerate(read_names(src)):
-            print(f'  {i:>2}  {name:<28} -> {map_name(name) or "(se descarta)"}')
+            print(f'  {i:>2}  {name:<28} -> {resolve(src, name, overrides or {}) or "(se descarta)"}')
 
 
-def build(sources: list[Path], out: Path, neg_ratio: float, seed: int) -> None:
+def build(sources: list[Path], out: Path, neg_ratio: float, seed: int, overrides: dict[str, dict[str, str]] | None = None) -> None:
+    overrides = overrides or {}
     rng = random.Random(seed)
     if out.exists():
         shutil.rmtree(out)
@@ -96,7 +116,7 @@ def build(sources: list[Path], out: Path, neg_ratio: float, seed: int) -> None:
 
     for src in sources:
         names = read_names(src)
-        remap = {i: class_id[t] for i, n in enumerate(names) if (t := map_name(n))}
+        remap = {i: class_id[t] for i, n in enumerate(names) if (t := resolve(src, n, overrides))}
         counts[src.name] = Counter()
         for raw_split, split in SPLITS.items():
             img_dir, lbl_dir = src / raw_split / 'images', src / raw_split / 'labels'
@@ -160,11 +180,17 @@ def main() -> None:
     ap.add_argument('--list', action='store_true', help='solo mostrar clases y su mapeo')
     ap.add_argument('--neg-ratio', type=float, default=0.1, help='fondos sin objetos a conservar, como fracción de las imágenes con objetos')
     ap.add_argument('--seed', type=int, default=0)
+    ap.add_argument('--map', action='append', default=[], metavar='FUENTE:CLASE=DESTINO',
+                    help='fuerza el mapeo de una clase de una fuente, p. ej. manhole:0=manhole (repetible)')
     args = ap.parse_args()
+    overrides = parse_overrides(args.map)
     missing = [s for s in args.sources if not (s / 'data.yaml').exists()]
     if missing:
         sys.exit(f'No encuentro data.yaml en: {", ".join(map(str, missing))}')
-    list_sources(args.sources) if args.list else build(args.sources, args.out, args.neg_ratio, args.seed)
+    if args.list:
+        list_sources(args.sources, overrides)
+    else:
+        build(args.sources, args.out, args.neg_ratio, args.seed, overrides)
 
 
 if __name__ == '__main__':

@@ -16,7 +16,18 @@ y descomprimir en `data/raw/<nombre>/`.
 |---|---|---|
 | `data/raw/sod` | https://universe.roboflow.com/lamao/sod-enect | CC BY 4.0 |
 | `data/raw/pothole-stair` | https://universe.roboflow.com/devansh2205/pothole-stair_detectionv2 | CC BY 4.0 |
+| `data/raw/pothole` | https://universe.roboflow.com/pothole-detector-dmdod/pothole-clzln | CC BY 4.0 |
+| `data/raw/pothole-stair` | https://universe.roboflow.com/devansh2205/pothole-stair_detection | CC BY 4.0 |
+| `data/raw/strairs`, `strairs2` | https://universe.roboflow.com/esera/strairs · `/strairs-2` | CC BY 4.0 |
+| `data/raw/manhole` | https://universe.roboflow.com/ff-vt4js/manhole-cover-detection | dominio público |
 | `data/raw/bogota` | fotos propias, etiquetadas en Roboflow y exportadas igual | propia |
+
+Descartadas tras mirar las cajas: `Dataset UpStairs` (una caja por peldaño y primeros planos de los pies,
+no se parece a lo que ve un celular a la altura del pecho) y `manholecover-detect` (clases en pinyin, sin
+verificar). `Up Down` viene en formato "folder", no es de detección.
+
+Dos fuentes tienen clases con nombres que las reglas no entienden y se fuerzan con `--map`:
+`--map manhole:0=manhole --map strairs:-=stairs`.
 
 Cada carpeta debe tener `data.yaml` y `train|valid|test/{images,labels}`.
 
@@ -33,7 +44,8 @@ sin ver los nombres reales de estos datasets, por eso este paso es obligatorio.
 ## 3. Construir
 
 ```
-python scripts/dataset/prepare_dataset.py data/raw/sod data/raw/pothole-stair data/raw/bogota --out data/bili-dataset
+python scripts/dataset/prepare_dataset.py data/raw/sod data/raw/pothole data/raw/pothole-stair data/raw/strairs \
+    data/raw/strairs2 data/raw/manhole --map manhole:0=manhole --map strairs:-=stairs --out data/bili-dataset
 ```
 
 Imprime las instancias por clase y marca las que tienen menos de 300. Revisar el informe antes de entrenar:
@@ -55,4 +67,25 @@ test por clase.
 - `stairs` (sin dirección) viene de datasets que no distinguen subida de bajada. Solo `stairs_down` y
   `stairs_up` sirven para avisar del peligro real; hay que etiquetar la dirección con fotos propias.
 - Un buen mAP en test no es una prueba de seguridad. Falta medir falsos negativos con grabaciones reales.
-- Falta enchufar `bili-hazards.pt` al pipeline como segundo detector (hoy `app/core/detector.py` carga uno solo).
+
+## Resultados del modelo v2 (YOLO26s, 25 épocas, T4)
+
+Dataset: 25.277 imágenes de train, 3.806 de val y 1.880 de test. Evaluado en test, en CPU:
+
+| Clase | mAP50-95 v1 | mAP50-95 v2 |
+|---|---|---|
+| pothole | 0,455 | 0,514 |
+| manhole | 0 | 0,654 |
+| curb | 0,291 | 0,323 |
+| stairs_down | 0 | 0,220 |
+| stairs_up | 0 | 0,362 |
+| stairs | 0,181 | 0,309 |
+| pole | 0,197 | 0,185 |
+| obstacle | 0,677 | 0,678 |
+| **total** | **0,225** | **0,406** (mAP50 0,654, recall 0,644) |
+
+El v1 no tenía datos de tapas ni de escaleras con dirección, por eso sale con 0 en ellas. La validación
+en Colab dio 0,385 en total y 0,156 en `curb`; no se explica la diferencia con la medición local, así que las
+cifras de `curb`, `pole` y escaleras son inciertas (pocas instancias en test).
+
+Son métricas del test del dataset, no de la calle de Bogotá.

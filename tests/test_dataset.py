@@ -72,6 +72,17 @@ def test_build_remaps_converts_polygons_and_reports(tmp_path, capsys):
     assert 'POCAS' in report and 'Person' in report            # avisa de clases con pocos datos y de lo descartado
 
 
+def test_map_override_rescues_classes_with_meaningless_names(tmp_path):
+    src = _make_source(tmp_path / 'manhole', ['0'], {'a': ['0 0.5 0.5 0.2 0.2']})
+    assert prep.resolve(src, '0', {}) is None                                  # sin override se descartaría
+    ov = prep.parse_overrides(['manhole:0=manhole'])
+    assert prep.resolve(src, '0', ov) == 'manhole'
+    out = tmp_path / 'out'
+    prep.build([src], out, neg_ratio=0.0, seed=0, overrides=ov)
+    label = next((out / 'labels' / 'train').glob('*.txt')).read_text().split()
+    assert label[0] == str(prep.BILI_CLASSES.index('manhole'))
+
+
 def test_background_fraction_is_respected(tmp_path):
     src = _make_source(tmp_path / 's', ['Curb', 'Person'], {
         'pos': ['0 0.5 0.5 0.2 0.2'], **{f'bg{i}': ['1 0.5 0.5 0.2 0.2'] for i in range(10)}})
