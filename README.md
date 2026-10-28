@@ -10,6 +10,76 @@ mediante Gemini.
 > desniveles y objetos fuera de sus datos de entrenamiento. Debe validarse con
 > personas invidentes y especialistas antes de cualquier uso real.
 
+## Probar Bili en tu celular (guía para colaboradores)
+
+El servidor corre en un computador y el **celular hace de cámara y de altavoz**: manda los frames por la red
+y recibe los avisos por voz (es-CO) y vibración. Lo que necesitas:
+
+- Un computador con Python 3.11 o 3.12 y un celular con navegador (Chrome o Safari).
+- **Ambos en la misma red Wi-Fi.** Si la red de la universidad no deja que los dispositivos se vean entre sí,
+  conecta el computador al punto de acceso (hotspot) del celular.
+
+### Instalar (una sola vez)
+
+```powershell
+git clone https://github.com/brandoeci/bili-app.git
+cd bili-app
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1          # en macOS/Linux: source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+copy .env.example .env                # en macOS/Linux: cp .env.example .env
+```
+
+El repositorio no incluye los modelos (`models/` está en `.gitignore`). Necesitas dos archivos en `models/`:
+
+1. `yolo26s.pt` (personas, vehículos y objetos comunes): `python scripts/export_models.py` lo descarga.
+2. `bili-hazards.pt` (huecos, tapas, bordillos, escaleras, postes y obstáculos): es el modelo propio y
+   **no se descarga**; pídeselo a quien lo entrenó y cópialo a `models/bili-hazards.pt` (pesa ~20 MB).
+
+### Arrancar
+
+```powershell
+python scripts/serve_https.py
+```
+
+Imprime una o varias direcciones como `https://192.168.0.5:8443/movil`. Si hay varias, usa la que empiece igual que
+la IP de tu celular (por ejemplo `192.168.0.x`). La primera vez Windows pregunta si permite a Python usar la red:
+acepta **solo en red privada**. Mantén la terminal abierta; se detiene con `Ctrl+C`.
+
+### Abrir en el celular
+
+1. Abre esa dirección en el navegador del celular.
+2. Aparece "la conexión no es privada": es el certificado autofirmado, necesario para que el navegador deje usar
+   la cámara. En Chrome: *Avanzado → Continuar a …*. En Safari: *Mostrar detalles → visitar este sitio web*.
+3. Concede el permiso de **cámara**.
+4. Pulsa **Empezar a guiarme**. Ese toque es necesario: el navegador no deja hablar hasta que el usuario toca la pantalla.
+5. Apunta la cámara trasera hacia adelante, a la altura del pecho.
+
+Para comprobar que cargaron los dos detectores, abre `https://<IP>:8443/health`: `hazards` debe ser `true`.
+
+### Qué esperar y qué anotar
+
+- Sin GPU la velocidad es de **pocos cuadros por segundo** (mediciones locales: ~4 FPS solo con la inferencia de
+  los dos modelos, sin el resto del pipeline). Los avisos llegan con retraso: **no lo uses para guiarte de verdad**;
+  es una prueba.
+- La **vibración** funciona en Android; iOS no la soporta en el navegador.
+- Prueba siempre **acompañado**, sin depender del sistema para evitar un peligro real.
+- Anota: qué peligro había, si avisó, cuánto tardó, si dio **falsas alarmas** y qué frase dijo. Una captura de
+  pantalla o una nota de voz por caso bastan. Bordillos, postes y escaleras con dirección son las clases más débiles.
+
+### Si algo falla
+
+| Síntoma | Qué mirar |
+|---|---|
+| El celular no abre la página | Misma red; prueba el hotspot; el firewall de Windows debe permitir Python en red privada |
+| `ModuleNotFoundError` | Activa `.venv` y repite `pip install -r requirements.txt` |
+| No pide la cámara | Debe ser `https://`, no `http://`; revisa el permiso del sitio en el navegador |
+| No habla | Toca **Empezar a guiarme**; sube el volumen de medios; en iOS quita el modo silencio |
+| `hazards` en `false` | Falta `models/bili-hazards.pt` o se copió mal; reinicia el servidor |
+
+Para tomar fotos de Bogotá con las que mejorar el modelo, ver la [guía de fotos](docs/guia-fotos.md).
+
 ## 1. Explicación general
 
 La aplicación está organizada en tres niveles:
