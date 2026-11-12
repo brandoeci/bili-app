@@ -14,6 +14,7 @@ from fastapi import FastAPI, WebSocket
 
 from app.api.routes_debug import router as debug_router
 from app.api.routes_describe import router as describe_router
+from app.api.routes_routing import router as routing_router
 from app.api.routes_session import router as session_router
 from app.api.routes_stream import router as stream_router
 from app.audio.earcons import EarconGenerator
@@ -470,6 +471,7 @@ app = FastAPI(title='Vision Asistiva', version='1.0.0', lifespan=lifespan)
 app.include_router(debug_router)
 app.include_router(session_router)
 app.include_router(describe_router)
+app.include_router(routing_router)
 app.include_router(stream_router)
 
 

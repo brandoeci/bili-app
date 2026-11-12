@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     gemini_model: str = 'gemini-3.6-flash'
     gemini_timeout_s: float = 20.0
 
+    # Rutas a pie (Google Routes + Geocoding). Sin clave, /v1/rutas responde 503.
+    google_maps_api_key: str = ''
+    routes_timeout_s: float = 8.0
+    routes_daily_limit: int = 300  # tope de llamadas pagas por día, para no llevarse sorpresas en la factura
+    routes_max_walk_m: int = 30000  # tope de cordura (otra ciudad, lugar mal ubicado); no es una regla de seguridad
+    osm_cruces_path: Path = Path('data/osm/bogota_cruces.json')  # scripts/osm/descargar_cruces.py
+
     base_dir: Path = Path(__file__).resolve().parent.parent
 
     @property
