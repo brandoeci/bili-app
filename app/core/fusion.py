@@ -155,6 +155,9 @@ class FusionEngine:
             if distance < 3 or (in_path and distance < 5):
                 return 'P0' if distance < 3 else 'P1'
             return 'P2' if distance < 8 else 'P3'
+        if label == 'manhole':
+            # Una tapa puesta no es un peligro y avisarla sería ruido. La clase existe para que el modelo no la confunda con un hueco.
+            return 'P3'
         if label == 'pothole':
             # Con el celular a la altura del pecho el suelo más cercano que se ve está a ~2,8 m, así que el
             # umbral genérico de 2,5 m no se activaría nunca. Se avisa a ~5 pasos, a tiempo de frenar.

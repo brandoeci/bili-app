@@ -61,6 +61,7 @@ class VisionContext:
             iou=self.settings.detector_iou,
             device=self.settings.detector_device,
             id_offset=100_000,
+            class_conf=self.settings.hazard_class_conf,
         ) if hazard_path.exists() else None
         self.depth = DepthModel(enabled=self.settings.depth_enabled, model_id=self.settings.depth_model, input_px=self.settings.depth_input_px)
         self._calibration_file = self.settings.base_dir / 'data' / 'calibration.json'
@@ -473,6 +474,10 @@ app.include_router(session_router)
 app.include_router(describe_router)
 app.include_router(routing_router)
 app.include_router(stream_router)
+if settings.onnx_spike:
+    from app.api.routes_spike import router as spike_router
+
+    app.include_router(spike_router)
 
 
 if __name__ == '__main__':

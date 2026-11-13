@@ -21,8 +21,12 @@ class YoloDetector:
         classes: list[str] | None = None,
         device: str | None = None,
         id_offset: int = 0,
+        class_conf: dict[str, float] | None = None,
     ):
         self.conf = conf
+        # Umbrales por clase, más estrictos que `conf` (p. ej. escaleras: en calles de Bogotá la mitad de las alarmas a 0.35 eran falsas).
+        # Solo pueden subir el umbral: el modelo ya descarta todo lo que esté por debajo de `conf`.
+        self.class_conf = {k.lower(): float(v) for k, v in (class_conf or {}).items()}
         # Con dos detectores, cada tracker numera desde 1: el offset evita que los IDs se mezclen en la fusión.
         self.id_offset = id_offset
         self.iou = iou
@@ -91,6 +95,8 @@ class YoloDetector:
             if self.classes is not None and label not in self.classes:
                 continue
             confidence = float(boxes.conf[index].item())
+            if confidence < self.class_conf.get(label, 0.0):
+                continue
             x1, y1, x2, y2 = [int(value) for value in boxes.xyxy[index].tolist()]
             track_id = None
             if boxes.id is not None:

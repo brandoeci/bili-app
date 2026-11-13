@@ -41,6 +41,14 @@ def test_pothole_is_not_measured_by_its_height():
     assert out.direction == 'center'
 
 
+def test_manhole_cover_is_never_announced():
+    """Una tapa puesta no es peligro: aunque esté en el camino y cerca, queda en P3 (el gestor de alertas no habla P3)."""
+    fusion = FusionEngine(focal_ratio=0.8)
+    out = fusion.update([_det('manhole', (200, 440, 440, 470))], None, (H, W, 3))[0]
+    assert out.direction == 'center' and out.distance_m < 3.0     # antes de este cambio, aquí se avisaba (P2)
+    assert out.priority == 'P3'
+
+
 def test_far_pothole_is_not_urgent():
     fusion = FusionEngine(focal_ratio=0.8)
     out = fusion.update([_det('pothole', (300, 262, 330, 272))], None, (H, W, 3))[0]

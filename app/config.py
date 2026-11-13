@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Segundo detector, entrenado por nosotros (scripts/dataset/train.py). Si el archivo no existe, se omite.
     hazard_model: str = 'models/bili-hazards.pt'
     hazard_conf: float = 0.35
+    # Umbral más estricto para las escaleras. Medido a ojo en 6 980 vistas de Bogotá: a 0.35 el modelo daba 76 alarmas y 38 eran reales (50 %);
+    # a 0.50, 55 alarmas y 33 reales (60 %). Se pierden 5 escaleras de 38 a cambio de quitar 16 falsas. Por variable de entorno: HAZARD_CLASS_CONF='{"stairs": 0.6}'
+    hazard_class_conf: dict[str, float] = {'stairs': 0.5, 'stairs_up': 0.5, 'stairs_down': 0.5}
 
     depth_enabled: bool = True
     depth_model: str = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf'  # Outdoor-Small-hf para exteriores
@@ -78,6 +81,9 @@ class Settings(BaseSettings):
     routes_daily_limit: int = 300  # tope de llamadas pagas por día, para no llevarse sorpresas en la factura
     routes_max_walk_m: int = 30000  # tope de cordura (otra ciudad, lugar mal ubicado); no es una regla de seguridad
     osm_cruces_path: Path = Path('data/osm/bogota_cruces.json')  # scripts/osm/descargar_cruces.py
+
+    # Solo desarrollo: sirve la página que mide YOLO (ONNX) en el teléfono y los .onnx. Entrega el modelo propio: no activar en público.
+    onnx_spike: bool = False
 
     base_dir: Path = Path(__file__).resolve().parent.parent
 
