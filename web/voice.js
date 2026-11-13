@@ -11,6 +11,7 @@
     askListenMs: 8000,      // tiempo para decir el destino
     confirmListenMs: 7000,  // tiempo para decir sí o no
     commandListenMs: 6000,  // tiempo para dar una orden durante la ruta
+    menuListenMs: 7000,     // tiempo para decir "nuevo destino" o "apagar" tras mantener dos dedos
     maxInterrupts: 3,       // veces que una alerta urgente puede cortar la escucha antes de rendirse
     maxTries: 3,            // intentos de destino cuando se oye algo pero no se logra una ruta
   };
@@ -63,6 +64,36 @@
     return null;
   }
 
+  /* Menú de dos dedos: 'newdest' | 'off' | null. Ante la duda (nada claro, las dos cosas, o un "no") NO se apaga: seguir guiando es lo seguro. */
+  function parseMenu(text) {
+    const n = norm(text);
+    if (!n || /\bno\b/.test(n)) return null;
+    const off = /\b(apag\w*|cancel\w*|deten\w*|parar?|termin\w*|finaliz\w*|salir)\b/.test(n);
+    const nuevo = /\b(nuev\w*|otr[oa]|cambi\w*|destino|ruta)\b/.test(n);
+    if (off === nuevo) return null;
+    return off ? 'off' : 'newdest';
+  }
+
+  /* Gesto de mantener N dedos en la pantalla: aviso a mitad de camino y disparo al completar el tiempo.
+   * Se alimenta con el número de dedos que hay tocando (touches(n)) cada vez que cambia; no depende del navegador. */
+  function createHold({ fingers = 2, holdMs = 2000, warnMs = 1000, onWarn = () => {}, onFire = () => {},
+    setT = (f, ms) => setTimeout(f, ms), clearT = (t) => clearTimeout(t), now = () => Date.now() } = {}) {
+    let warnT = null, fireT = null, active = false, lastFire = -Infinity;
+    const clear = () => { clearT(warnT); clearT(fireT); warnT = fireT = null; active = false; };
+    return {
+      touches(n) {
+        if (n === fingers && !active) {
+          active = true;
+          warnT = setT(() => { if (active) onWarn(); }, warnMs);
+          fireT = setT(() => { clear(); lastFire = now(); onFire(); }, holdMs);
+        } else if (n !== fingers && active) clear();  // soltó un dedo o puso otro: no era el gesto
+      },
+      /* Al soltar los dedos el navegador manda un "click": tras el gesto hay que ignorarlo. */
+      suppressClick() { return now() - lastFire < 1200; },
+      get active() { return active; },
+    };
+  }
+
   /* "sin destino", "ninguno", "solo quiero caminar": la persona no tiene una ruta, y eso es una respuesta válida. */
   function parseFree(text) {
     return /\b(sin destino|sin ruta|ningun\w*|no tengo|solo (quiero )?(camin\w*|pase\w*|anda\w*)|cualquier\w*|libre|no se)\b/.test(norm(text));
@@ -78,8 +109,34 @@
       .replace(/\s*&\s*/g, ' con ').replace(/\s*#\s*/g, ' número ').replace(/\s+/g, ' ').trim();
   }
 
+  /* Qué se le dice a la persona cuando algo falla. Solo se dicen los mensajes pensados para ella (marcados con paraLaPersona);
+   * un error técnico ("Load failed", "Failed to fetch"...) no se lee: devuelve null y Bili pide repetir. */
+  function mensajeDeError(err) {
+    return err && err.paraLaPersona === true && typeof err.message === 'string' && err.message.trim() ? err.message : null;
+  }
+  const REPETIR = 'No le entendí. Repita después del tono.';
+
+  /* Qué se dice si falla buscar la ruta. Ubicación: mensajes claros. Un error técnico de red ("Load failed") devuelve null:
+   * sin mensaje, Bili dice REPETIR. Un error de geolocalización se reconoce por sus constantes (PERMISSION_DENIED...), no solo por
+   * tener "code": otras excepciones del navegador también traen un code numérico. */
+  function mensajeDeFalloDeRuta(err) {
+    const geo = err && typeof err.PERMISSION_DENIED === 'number';
+    if (geo && err.code === err.PERMISSION_DENIED) return 'No tengo permiso para usar la ubicación. Actívela en los ajustes del teléfono.';
+    if (geo) return 'No pude obtener su ubicación. Salga a un lugar abierto e intente de nuevo.';
+    if (err && err.message === 'sin-gps') return 'Este teléfono no tiene ubicación disponible.';
+    return mensajeDeError(err);
+  }
+  /* Error de la petición de ruta. Solo los códigos con un motivo escrito para la persona (no encontré el lugar, queda lejos,
+   * límite diario, no se pudo calcular) se dicen; el resto (500, 503 "no está configurado", etc.) es técnico y se calla. */
+  function errorDeRuta(status, detalle) {
+    const e = new Error(typeof detalle === 'string' ? detalle : 'Revise el destino e intente de nuevo.');
+    e.paraLaPersona = [404, 422, 429, 502].includes(status) && typeof detalle === 'string';
+    return e;
+  }
+
   const AYUDA = 'No entendí la orden. Puede decir: repetir, dónde estoy, describir, nuevo destino, o cancelar.';
   const TOQUE = 'Toque la pantalla y dígame el destino.';
+  const MENU = '¿Nuevo destino o apagar? Hable después del tono.';
 
   /* env: {
    *   say(text, priority) -> Promise            resuelve cuando Bili terminó de hablar
@@ -136,7 +193,7 @@
           await env.say('Está bien. Dígame el destino otra vez, después del tono.', 'P1');
         } else {
           if (intento >= T.maxTries - 1) { await env.say('No logré encontrar ese lugar. ' + TOQUE, 'P1'); return 'failed'; }
-          await env.say((res && res.message) || 'No le entendí. Dígame el destino otra vez, después del tono.', 'P1');
+          await env.say((res && res.message) || REPETIR, 'P1');
         }
         r = await hear(T.askListenMs);
       }
@@ -159,7 +216,8 @@
     async function guarded(fn) {
       if (busy) return 'busy';
       busy = true;
-      try { return await fn(); } finally { busy = false; }
+      if (env.busy) env.busy(true);   // mientras dure el diálogo, las alertas normales esperan en vez de colarse entre sus frases
+      try { return await fn(); } finally { busy = false; if (env.busy) env.busy(false); }
     }
 
     return {
@@ -174,11 +232,34 @@
         if (out === 'newdest') return guarded(() => askDestination('Dígame el nuevo destino, después del tono.'));
         return out;
       },
+      /* Dos dedos mantenidos: corta lo que Bili esté diciendo y pregunta "¿nuevo destino o apagar?".
+       * Sin ruta activa hace lo mismo que un toque (preguntar el destino). Apagar solo ocurre si la persona lo dice claro. */
+      async onMenu() {
+        if (busy) return 'busy';
+        env.interrupt();
+        if (!navigating) return guarded(() => askDestination('¿A dónde quiere ir? Hable después del tono.'));
+        return guarded(async () => {
+          await env.say(MENU, 'P1');
+          const r = await hear(T.menuListenMs);
+          if (r.error) { await env.say('No puedo escuchar ahora. Mantenga dos dedos para intentarlo de nuevo.', 'P1'); return 'error'; }
+          if (r.silence) { await env.say('Sigo guiándolo.', 'P1'); return 'silence'; }
+          const op = parseMenu(r.text);
+          if (op === 'off') {
+            navigating = false;
+            await env.say('Guía apagada.', 'P1');
+            (env.shutdown || env.cancelRoute)();
+            return 'off';
+          }
+          if (op === 'newdest') { await askDestination('Dígame el nuevo destino, después del tono.'); return 'newdest'; }
+          await env.say('No le entendí. Sigo guiándolo. Mantenga dos dedos para intentarlo de nuevo.', 'P1');
+          return 'unknown';
+        });
+      },
       routeStarted() { navigating = true; },  // una ruta que arrancó por otro camino (p. ej. escrita por un acompañante)
       routeEnded() { navigating = false; },
       get navigating() { return navigating; },
     };
   }
 
-  return { createDialog, parseYesNo, cleanDestination, parseCommand, parseFree, speakable, norm, T };
+  return { createDialog, createHold, parseYesNo, cleanDestination, parseCommand, parseMenu, parseFree, mensajeDeError, mensajeDeFalloDeRuta, errorDeRuta, speakable, norm, T };
 });

@@ -58,3 +58,30 @@ def test_mobile_page_is_served():
     response = client.get('/movil')
     assert response.status_code == 200
     assert 'getUserMedia' in response.text
+    assert response.headers['cache-control'] == 'no-store'   # si el iPhone guarda una página vieja, sigue con código ya corregido
+    assert 'Bienvenido a Bili, tu ayuda visual' in response.text   # lo que lee VoiceOver al abrir y lo que se dice al primer toque
+
+
+def test_events_ws_contesta_pong_al_ping_del_telefono():
+    """El teléfono pregunta cada pocos segundos '¿sigues ahí?': sin respuesta da la conexión por caída y avisa por voz."""
+    with TestClient(app) as live, live.websocket_connect('/ws/events') as ws:
+        ws.send_text('ping')
+        for _ in range(20):  # al conectarse llegan antes los avisos del estado del sistema
+            if ws.receive_json() == {'type': 'pong'}:
+                break
+        else:
+            pytest.fail('el servidor no contestó pong')
+
+
+def test_events_ws_no_deja_sockets_muertos_en_la_lista():
+    with TestClient(app) as live:
+        antes = len(app_state.websockets)
+        with live.websocket_connect('/ws/events') as ws:
+            ws.send_text('ping')
+            assert len(app_state.websockets) == antes + 1
+        for _ in range(50):  # el cierre se procesa en el event loop del servidor
+            if len(app_state.websockets) == antes:
+                break
+            import time
+            time.sleep(0.05)
+        assert len(app_state.websockets) == antes

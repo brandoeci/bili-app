@@ -29,7 +29,7 @@
     /* Toda la pantalla es un solo botón: no hay nada que buscar con el dedo. */
     #start, #talk { position:fixed; inset:0; width:100%; height:100%; border-radius:0; z-index:10; display:flex; align-items:flex-end; justify-content:center; padding:0 24px max(48px,env(safe-area-inset-bottom)); font-size:1.7rem; text-align:center; line-height:1.3; }
     #start { background:var(--accent); color:#000; align-items:center; padding:24px; }
-    #talk { background:transparent; color:var(--fg); }
+    #talk { background:transparent; color:var(--fg); touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
     #talk.escuchando { box-shadow: inset 0 0 0 10px var(--ok); }
     #escucha { font-size:1.6rem; font-weight:700; color:var(--ok); min-height:1.4em; }
     #nav-estado { font-size:1.15rem; line-height:1.4; min-height:2.6em; }
@@ -44,10 +44,10 @@
   <p id="aviso" style="color:var(--muted);font-size:.95rem;margin:0">
     Ayuda complementaria: no reemplaza el bastón ni el perro guía. Lleve el celular con la cámara trasera hacia adelante.
   </p>
-  <button id="start" aria-label="Empezar. Toque en cualquier parte de la pantalla para activar Bili.">Toque en cualquier parte para empezar</button>
+  <button id="start" aria-label="Bienvenido a Bili, tu ayuda visual. Por favor toque en cualquier parte para hablar.">Bienvenido a Bili, tu ayuda visual.<br>Por favor toque en cualquier parte para hablar.</button>
 
   <div id="live" class="hidden">
-    <details id="ayuda">
+    <details id="ayuda" hidden>
       <summary>Opciones para un acompañante</summary>
       <label for="dest" style="font-size:.95rem;color:var(--muted)">Destino escrito</label>
       <input id="dest" type="text" autocomplete="off" placeholder="Ej.: calle 72 con carrera 10" />
@@ -69,66 +69,48 @@
 
 <script src="/v1/nav.js"></script>
 <script src="/v1/voice.js"></script>
+<script src="/v1/conexion.js"></script>
+<script src="/v1/voz.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   const SEND_W = 640, JPEG_Q = 0.6, SEND_FPS = 8, MAX_BUFFERED = 250_000;
-  const MAX_AGE_MS = { P0: 4000, P1: 4000, P2: 20000, P3: 10000 };
-  const RANK = { P0: 0, P1: 1, P2: 2, P3: 3 };
   const RATE = Number(params.get('rate')) || 1.0;  // velocidad de la voz; antes 1.1 era demasiado rápido
   const QUIET_AFTER_SPEECH_MS = 350;               // pausa para no oír el eco de la propia voz
   let stream = null, wsFrames = null, wsEvents = null, timer = null, wake = null, running = false;
   let sent = 0, dropped = 0, lastFrame = null;
 
-  /* ---------- Voz: cola con prioridad ---------- */
-  let queue = [], speaking = null, voice = null, listening = false, currentListen = null, audioCtx = null;
-  const history = [];
+  /* ---------- Voz: la cola vive en voz.js (con pruebas). Regla: ninguna frase se corta a la mitad. ---------- */
+  let voice = null, currentListen = null, audioCtx = null;
   function pickVoice() {
     const vs = speechSynthesis.getVoices();
     voice = vs.find(v => /es[-_]CO/i.test(v.lang)) || vs.find(v => /es[-_](MX|US|419)/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null;
   }
   speechSynthesis.onvoiceschanged = pickVoice; pickVoice();
-
-  const finish = (item) => { if (item && item.cb) { const cb = item.cb; item.cb = null; cb(); } };
-  function dropWhere(pred) { queue = queue.filter(i => { if (pred(i)) { finish(i); return false; } return true; }); }
-
-  /* cb se llama cuando el mensaje terminó de decirse, o cuando se descartó. */
-  function speak(text, priority = 'P3', interruptible = true, cb = null) {
-    const rank = RANK[priority] ?? 3;
-    if (rank === 0) {
-      dropWhere(i => i.rank !== 0);
-      if (speaking && speaking.rank > 0 && speaking.interruptible) speechSynthesis.cancel();
-      if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
-      if (currentListen) currentListen.interrupt();  // una alerta urgente corta la escucha
-    } else if (rank === 2) {
-      dropWhere(i => i.rank === 2);
-    }
-    queue.push({ text, rank, priority, interruptible, cb, t: performance.now() });
-    queue.sort((a, b) => a.rank - b.rank || a.t - b.t);
-    pump();
-  }
-  function pump() {
-    if (speaking || !queue.length) return;
-    if (listening && queue[0].rank > 0) return;  // mientras la persona habla, Bili espera (solo lo urgente interrumpe)
-    const item = queue.shift();
-    if (performance.now() - item.t > (MAX_AGE_MS[item.priority] ?? 10000)) { finish(item); return pump(); } // ya caducó
-    const u = new SpeechSynthesisUtterance(item.text);
-    u.lang = voice ? voice.lang : 'es-CO'; if (voice) u.voice = voice;
-    u.rate = RATE;
-    speaking = item;
-    history.push(item.text); if (history.length > 8) history.shift();
-    u.onend = u.onerror = () => { speaking = null; finish(item); pump(); };
-    speechSynthesis.speak(u);
-  }
-  const sayAndWait = (text, priority = 'P1') => new Promise(res => speak(text, priority, true, res));
-  function interruptSoft() {  // la persona va a hablar: se calla todo lo que no sea urgente
-    if (speaking && speaking.rank > 0) { speechSynthesis.cancel(); const s = speaking; speaking = null; finish(s); }
-    dropWhere(i => i.rank > 0);
-  }
+  const voz = BiliVoz.create({
+    synth: {
+      speak: (texto, alTerminar) => {
+        const u = new SpeechSynthesisUtterance(texto);
+        u.lang = voice ? voice.lang : 'es-CO'; if (voice) u.voice = voice;
+        u.rate = RATE;
+        u.onend = u.onerror = alTerminar;
+        speechSynthesis.speak(u);
+      },
+      cancel: () => speechSynthesis.cancel(),
+    },
+    now: () => performance.now(),
+    vibrate: (p) => { if (navigator.vibrate) navigator.vibrate(p); },
+    interruptListen: () => { if (currentListen) currentListen.interrupt(); },
+  });
+  const speak = (text, priority = 'P3', interruptible = true, cb = null) => voz.speak(text, priority, interruptible, cb);
+  const sayAndWait = (text, priority = 'P1') => voz.sayAndWait(text, priority);
+  const decir = (text, priority = 'P1') => voz.sayAndWait(text, priority, { lane: 'dialogo' });  // el diálogo no se interrumpe con alertas normales
+  const interruptSoft = () => voz.interruptSoft();
+  const history = { get last() { return voz.ultimo(); } };
   async function whenQuiet() {
     const t0 = performance.now();
-    while ((speaking || queue.some(i => i.rank === 0)) && performance.now() - t0 < 15000) await new Promise(r => setTimeout(r, 100));
+    while (voz.ocupada() && performance.now() - t0 < 15000) await new Promise(r => setTimeout(r, 100));
     await new Promise(r => setTimeout(r, QUIET_AFTER_SPEECH_MS));
   }
   function beep() {
@@ -150,10 +132,10 @@
       let done = false, rec = null, heardSpeech = false;
       const end = (r) => {
         if (done) return; done = true;
-        clearTimeout(tm); listening = false; currentListen = null;
+        clearTimeout(tm); currentListen = null;
         try { rec && rec.abort(); } catch (_) {}
         $('escucha').textContent = ''; $('talk').classList.remove('escuchando');
-        resolve(r); pump();
+        resolve(r); voz.setListening(false);
       };
       const tm = setTimeout(() => { if (!heardSpeech) end({ silence: true }); }, ms);
       const begin = () => {
@@ -168,7 +150,7 @@
         rec.onend = () => { if (!done) { if (performance.now() < deadline - 1200) begin(); else end({ silence: true }); } };
         try { rec.start(); } catch (err) { end({ error: String(err) }); }
       };
-      listening = true;
+      voz.setListening(true);
       currentListen = { interrupt: () => end({ interrupted: true }) };
       $('escucha').textContent = 'Escuchando…'; $('talk').classList.add('escuchando');
       begin();
@@ -193,7 +175,7 @@
     if (!r.ok) {
       let detalle = 'No pude calcular la ruta ahora.';
       try { detalle = (await r.json()).detail || detalle; } catch (_) {}
-      throw new Error(typeof detalle === 'string' ? detalle : 'Revise el destino e intente de nuevo.');
+      throw BiliVoice.errorDeRuta(r.status, detalle);  // solo los motivos escritos para la persona se dicen; lo técnico se calla
     }
     return r.json();
   }
@@ -212,10 +194,8 @@
       const larga = r.distancia_m > 3000 ? ' Es una caminata larga.' : '';
       return { ok: true, ruta: r, speech: `Encontré ${lugar(r.destino_confirmado || texto)}. ${r.resumen}.${larga} ${avisos} ¿Comienzo? Diga sí o no.` };
     } catch (err) {
-      const msg = err.code === 1 ? 'No tengo permiso para usar la ubicación. Actívela en los ajustes del teléfono.'
-        : err.code ? 'No pude obtener su ubicación. Salga a un lugar abierto e intente de nuevo.'
-        : err.message === 'sin-gps' ? 'Este teléfono no tiene ubicación disponible.' : BiliVoice.speakable(err.message);
-      return { ok: false, message: msg };
+      const msg = BiliVoice.mensajeDeFalloDeRuta(err);  // un error técnico ("Load failed") no se lee: sin mensaje, Bili pide repetir
+      return { ok: false, message: msg ? BiliVoice.speakable(msg) : undefined };
     }
   }
   /* Posición continua: sirve para el seguimiento de la ruta y para decir dónde está la persona, haya ruta o no. */
@@ -287,13 +267,15 @@
 
   /* ---------- Diálogo por voz ---------- */
   const env = {
-    say: sayAndWait,
+    say: decir,
+    busy: (b) => voz.setDialogBusy(b),
     listen, whenQuiet, beep,
     interrupt: interruptSoft,
     findRoute,
     startRoute: (r) => iniciarSeguimiento(r),
     cancelRoute: cancelarRuta,
-    repeat: () => { const t = history[history.length - 1]; speak(t || 'No hay nada que repetir.', 'P1'); },
+    shutdown: () => stop(),  // "apagar" del menú de dos dedos: cámara, conexiones y voz
+    repeat: () => { const t = history.last; speak(t || 'No hay nada que repetir.', 'P1'); },
     describe: () => fetch('/v1/describe', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: 'auto', task: 'scene', speak: true }) }).catch(() => speak('No pude describir la escena.', 'P1')),
     whereText,
@@ -318,15 +300,30 @@
 
   /* ---------- WebSockets ---------- */
   const base = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+  /* El vigilante (conexion.js) decide cuándo reconectar y avisa POR VOZ: una persona ciega no ve un letrero de "sin conexión". */
+  let sup = null, conectandoDesde = 0;
+  function cerrarCanales() {  // se quitan los manejadores antes de cerrar, para que un cierre viejo no dispare otra caída
+    for (const w of [wsFrames, wsEvents]) {
+      if (!w) continue;
+      w.onopen = w.onclose = w.onerror = w.onmessage = null;
+      try { w.close(); } catch (_) {}
+    }
+    wsFrames = wsEvents = null;
+  }
   function connect() {
     if (!running) return;
+    if (wsEvents && wsEvents.readyState === 0 && performance.now() - conectandoDesde < 4000) return;  // todavía está intentando: no se corta
+    cerrarCanales();
+    conectandoDesde = performance.now();
     wsFrames = new WebSocket(`${base()}/ws/frames`); wsFrames.binaryType = 'arraybuffer';
-    wsFrames.onclose = () => { if (running) setTimeout(connect, 1500); };
+    wsFrames.onclose = () => { if (sup) sup.closed(); };
     wsEvents = new WebSocket(`${base()}/ws/events`);
-    wsEvents.onopen = () => { $('state').textContent = 'Conectado.'; };
-    wsEvents.onclose = () => { if (running) $('state').textContent = 'Sin conexión con el servidor. Reintentando…'; };
+    wsEvents.onopen = () => { $('state').textContent = 'Conectado.'; if (sup) sup.heard(); };
+    wsEvents.onclose = () => { if (running) $('state').textContent = 'Sin conexión con el servidor. Reintentando…'; if (sup) sup.closed(); };
     wsEvents.onmessage = (m) => {
+      if (sup) sup.heard();  // cualquier mensaje del servidor prueba que la conexión sirve
       const e = JSON.parse(m.data);
+      if (e.type === 'pong') return;
       if (e.type === 'speak') {
         if (readyResolve && /^Sistema (listo|iniciado)/.test(e.text)) readyResolve();
         speak(e.text, e.priority, e.interruptible !== false);
@@ -347,7 +344,7 @@
   // Si el servidor deja de contestar, la persona debe saberlo: no puede ver que la pantalla se congeló.
   setInterval(() => {
     if (running && lastFrame && performance.now() - lastFrame > 5000) {
-      lastFrame = null; speak('Perdí la conexión con el servidor. Use su bastón.', 'P0');
+      lastFrame = null; speak('Dejé de recibir la detección del servidor. Use su bastón. Revise su conexión.', 'P1');
     }
   }, 2000);
 
@@ -370,11 +367,19 @@
     running = true;
     $('start').classList.add('hidden'); $('live').classList.remove('hidden');
     try { wake = await navigator.wakeLock.request('screen'); } catch (_) {}
+    sup = BiliConexion.create({
+      now: () => performance.now(),
+      setInterval: (f, ms) => setInterval(f, ms), clearInterval: (id) => clearInterval(id),
+      open: connect,
+      ping: () => { if (wsEvents && wsEvents.readyState === 1) { try { wsEvents.send('ping'); } catch (_) {} } },
+      say: (t, p) => speak(t, p, false),
+    });
+    sup.start();
     connect(); startSending(); seguirPosicion();
     dialog = BiliVoice.createDialog(env);
-    await sayAndWait('Bili activado.', 'P1');
+    await decir('Bienvenido a Bili, tu ayuda visual.', 'P1');
     await Promise.race([sistemaListo, new Promise(r => setTimeout(r, 8000))]);  // primero el estado del sistema, después la pregunta
-    if (await primeraPosicion(5000)) await sayAndWait(await whereText(), 'P1');   // dónde está, antes de preguntar adónde va
+    if (await primeraPosicion(5000)) await decir(await whereText(), 'P1');   // dónde está, antes de preguntar adónde va
     dialog.start();  // pregunta el destino sin que haya que tocar nada
   }
   function stop() {
@@ -383,18 +388,31 @@
     if (posWatch !== null) { navigator.geolocation.clearWatch(posWatch); posWatch = null; }
     if (currentListen) currentListen.interrupt();
     if (stream) stream.getTracks().forEach(t => t.stop());
-    if (wsFrames) wsFrames.close(); if (wsEvents) wsEvents.close();
+    if (sup) { sup.stop(); sup = null; }
+    cerrarCanales();
     if (wake) wake.release().catch(() => {});
-    speechSynthesis.cancel(); queue = []; speaking = null;
+    voz.reset();
     $('live').classList.add('hidden'); $('start').classList.remove('hidden'); $('start').disabled = false;
     $('state').textContent = '';
   }
   document.addEventListener('visibilitychange', async () => {
-    if (running && document.visibilityState === 'visible') { try { wake = await navigator.wakeLock.request('screen'); } catch (_) {} }
+    if (running && document.visibilityState === 'visible') {
+      try { wake = await navigator.wakeLock.request('screen'); } catch (_) {}
+      if (sup) sup.wake();  // al volver al primer plano los canales pudieron morir en silencio: se comprueba ya
+    }
   });
+  window.addEventListener('online', () => { if (sup) sup.wake(); });
+  window.addEventListener('offline', () => { if (sup) sup.closed(); });
+  // Las opciones escritas son solo para un acompañante que sí ve la pantalla: no aparecen salvo con ?acompanante en la dirección.
+  if (new URLSearchParams(location.search).has('acompanante')) $('ayuda').hidden = false;
 
   $('start').addEventListener('click', start);
-  $('talk').addEventListener('click', () => { if (dialog) dialog.onTap(); });
+  /* Mantener dos dedos 2 s: pitido al primer segundo; a los 2 s Bili se calla y pregunta "¿nuevo destino o apagar?". */
+  const hold = BiliVoice.createHold({ onWarn: beep, onFire: () => { if (dialog) dialog.onMenu(); } });
+  for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    $('talk').addEventListener(ev, (e) => hold.touches(e.touches.length), { passive: true });
+  }
+  $('talk').addEventListener('click', () => { if (hold.suppressClick()) return; if (dialog) dialog.onTap(); });
   // Opciones para un acompañante que sí ve la pantalla
   $('stop').addEventListener('click', stop);
   $('repeat').addEventListener('click', env.repeat);
@@ -404,7 +422,7 @@
     const texto = $('dest').value.trim(); if (texto.length < 3) return;
     const res = await findRoute(texto);
     if (res.ok) { iniciarSeguimiento(res.ruta); if (dialog) dialog.routeStarted(); speak(`Voy a ${lugar(res.ruta.destino_confirmado || texto)}. ${res.ruta.resumen}.`, 'P1'); }
-    else speak(res.message, 'P1');
+    else speak(res.message || 'No pude calcular la ruta ahora.', 'P1');
   });
 })();
 </script>

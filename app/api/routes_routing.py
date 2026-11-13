@@ -108,6 +108,6 @@ async def ubicacion(
 @router.get('/{nombre}.js', include_in_schema=False)
 def script_del_telefono(nombre: str):
     """Lógica que corre en el teléfono (seguimiento de ruta y diálogo por voz)."""
-    if nombre not in {'nav', 'voice'}:
+    if nombre not in {'nav', 'voice', 'conexion', 'voz'}:
         raise HTTPException(status_code=404, detail='No existe')
     return FileResponse(settings.web_dir / f'{nombre}.js', media_type='application/javascript', headers={'Cache-Control': 'no-cache'})

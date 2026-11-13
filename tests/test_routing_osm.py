@@ -156,6 +156,8 @@ def test_sin_archivo_de_cruces_la_ruta_sigue_y_avisa(api):
 def test_solo_se_sirven_los_scripts_del_telefono():
     c = TestClient(app)
     assert c.get('/v1/voice.js').status_code == 200
+    assert c.get('/v1/conexion.js').status_code == 200
+    assert c.get('/v1/voz.js').status_code == 200
     assert c.get('/v1/secreto.js').status_code == 404
     assert c.get('/v1/..%2Fconfig.js').status_code in {404, 422}
 

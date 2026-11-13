@@ -62,7 +62,8 @@ def mobile():
 
     from app.config import settings
 
-    return FileResponse(settings.web_dir / 'movil.html')
+    # Sin caché: si el iPhone se queda con una página vieja, sigue usando código ya corregido (y leía errores técnicos en voz alta)
+    return FileResponse(settings.web_dir / 'movil.html', headers={'Cache-Control': 'no-store'})
 
 
 @router.get('/')

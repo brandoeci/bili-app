@@ -37,9 +37,13 @@ async def events_ws(websocket: WebSocket):
     app_state.register_ws(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            texto = await websocket.receive_text()
+            if texto == 'ping':  # el teléfono pregunta "¿sigues ahí?": así detecta una caída que el navegador no nota
+                await websocket.send_json({'type': 'pong'})
     except WebSocketDisconnect:
-        app_state.unregister_ws(websocket)
+        pass
+    finally:
+        app_state.unregister_ws(websocket)  # también si el canal se rompe de otra forma: no se deja un socket muerto en la lista
 
 
 @router.websocket('/ws/frames')
