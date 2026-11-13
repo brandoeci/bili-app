@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de YOLO en el celular</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; background: #111; color: #eee; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  video { width: 100%; max-width: 480px; background: #000; border-radius: 8px; }
+  button { font-size: 18px; padding: 14px 20px; margin: 8px 8px 8px 0; border-radius: 10px; border: 0; background: #2d7ff9; color: #fff; }
+  button:disabled { background: #555; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #1c1c1c; padding: 12px; border-radius: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Prueba de YOLO en el celular</h1>
+<p>Mide cuánto tarda cada cuadro con los dos modelos, sin servidor. Es solo para desarrollo.</p>
+<video id="v" playsinline muted autoplay></video>
+<div>
+  <button id="go">Empezar prueba</button>
+  <button id="copiar" disabled>Copiar resultados</button>
+</div>
+<pre id="out">Listo. Toque "Empezar prueba" y permita la cámara. Dura 1 o 2 minutos.</pre>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
+<script>
+'use strict';
+const CONF = 0.35, IOU = 0.5, RUNS = 30, WARMUP = 3;
+/* Cada variante: modelo + forma de la entrada (alto x ancho, vertical como la cámara del teléfono). */
+const FORMAS = [{ id: '640x480', h: 640, w: 480 }, { id: '416x320', h: 416, w: 320 }];
+const BASES = [
+  { id: 'yolo26n', clases: 80 },
+  { id: 'yolo26s', clases: 80 },
+  { id: 'bili-hazards', clases: 8 },
+];
+const MODELOS = FORMAS.flatMap((f) => BASES.map((b) => ({ ...b, forma: f, id: `${b.id}_${f.id}`, base: b.id })));
+const out = document.getElementById('out');
+const lineas = [];
+const log = (t) => { lineas.push(t); out.textContent = lineas.join('\n'); };
+
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+let planar = null;
+
+/* Cuadro de la cámara -> tensor [1,3,alto,ancho]. Con la cámara vertical (480x640) y entrada 640x480 no sobra ninguna banda gris. */
+function preparar(video, H, W) {
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; planar = new Float32Array(3 * H * W); }
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const s = Math.min(W / vw, H / vh);
+  const w = Math.round(vw * s), h = Math.round(vh * s);
+  ctx.fillStyle = 'rgb(114,114,114)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(video, (W - w) >> 1, (H - h) >> 1, w, h);
+  const px = ctx.getImageData(0, 0, W, H).data;
+  const n = W * H;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    planar[i] = px[j] / 255;
+    planar[n + i] = px[j + 1] / 255;
+    planar[2 * n + i] = px[j + 2] / 255;
+  }
+  return new ort.Tensor('float32', planar, [1, 3, H, W]);
+}
+
+/* Salida cruda [1, 4+clases, 8400]: cx,cy,w,h y una puntuación por clase. Se filtra por confianza y se quitan repetidas (NMS por clase). */
+function decodificar(salida, nClases) {
+  const d = salida.data, N = salida.dims[2];
+  const cand = [];
+  for (let i = 0; i < N; i++) {
+    let mejor = 0, c = 0;
+    for (let k = 0; k < nClases; k++) {
+      const v = d[(4 + k) * N + i];
+      if (v > mejor) { mejor = v; c = k; }
+    }
+    if (mejor < CONF) continue;
+    const cx = d[i], cy = d[N + i], w = d[2 * N + i], h = d[3 * N + i];
+    cand.push({ c, s: mejor, x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2 });
+  }
+  cand.sort((a, b) => b.s - a.s);
+  const keep = [];
+  for (const a of cand) {
+    let ok = true;
+    for (const b of keep) {
+      if (b.c !== a.c) continue;
+      const iw = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1), ih = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
+      if (iw <= 0 || ih <= 0) continue;
+      const inter = iw * ih;
+      const iou = inter / ((a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter);
+      if (iou > IOU) { ok = false; break; }
+    }
+    if (ok) keep.push(a);
+  }
+  return keep;
+}
+
+const mediana = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+const p95 = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * 0.95))]; };
+const ms = (x) => x.toFixed(0).padStart(4) + ' ms';
+const pausa = (t) => new Promise((r) => setTimeout(r, t));
+
+async function probar(video, modelo, backend) {
+  const etiqueta = `${modelo.id} con ${backend}`;
+  let sesion;
+  const t0 = performance.now();
+  try {
+    sesion = await ort.InferenceSession.create(`/v1/onnx/${modelo.id}.onnx`, { executionProviders: [backend], graphOptimizationLevel: 'all' });
+  } catch (e) {
+    log(`\n[${etiqueta}] NO CARGÓ: ${e.message || e}`);
+    return null;
+  }
+  const carga = performance.now() - t0;
+  const entrada = sesion.inputNames[0];
+  const pre = [], run = [], post = [], total = [];
+  let detecciones = 0;
+  try {
+    for (let i = 0; i < WARMUP + RUNS; i++) {
+      const a = performance.now();
+      const tensor = preparar(video, modelo.forma.h, modelo.forma.w);
+      const b = performance.now();
+      const res = await sesion.run({ [entrada]: tensor });
+      const c = performance.now();
+      const dets = decodificar(res[sesion.outputNames[0]], modelo.clases);
+      const d = performance.now();
+      if (i >= WARMUP) { pre.push(b - a); run.push(c - b); post.push(d - c); total.push(d - a); detecciones += dets.length; }
+      await pausa(0); // deja respirar al navegador
+    }
+  } catch (e) {
+    log(`\n[${etiqueta}] FALLÓ al correr: ${e.message || e}`);
+    try { await sesion.release(); } catch (_) {}
+    return null;
+  }
+  try { await sesion.release(); } catch (_) {}
+  log(`\n[${etiqueta}]\n  carga del modelo : ${ms(carga)}\n  preparar imagen  : ${ms(mediana(pre))}\n  modelo (mediana) : ${ms(mediana(run))}   p95: ${ms(p95(run))}\n  decodificar+NMS  : ${ms(mediana(post))}\n  TOTAL por cuadro : ${ms(mediana(total))}   p95: ${ms(p95(total))}   (~${(1000 / mediana(total)).toFixed(1)} cuadros/s)\n  detecciones/cuadro: ${(detecciones / RUNS).toFixed(1)}`);
+  return { etiqueta, total: mediana(total) };
+}
+
+document.getElementById('go').addEventListener('click', async (ev) => {
+  const boton = ev.target;
+  boton.disabled = true;
+  lineas.length = 0;
+  log(`Navegador: ${navigator.userAgent}`);
+  log(`Hilos del procesador: ${navigator.hardwareConcurrency} | crossOriginIsolated: ${self.crossOriginIsolated} | WebGPU: ${'gpu' in navigator}`);
+  ort.env.wasm.simd = true;
+  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
+  log(`Hilos de WebAssembly usados: ${ort.env.wasm.numThreads}`);
+
+  const video = document.getElementById('v');
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    await video.play();
+    await pausa(800);
+  } catch (e) {
+    log(`No se pudo abrir la cámara: ${e.message || e}`);
+    boton.disabled = false;
+    return;
+  }
+  log(`Cámara: ${video.videoWidth}x${video.videoHeight}`);
+
+  if (video.videoWidth > video.videoHeight) log('AVISO: la cámara salió horizontal. Sostenga el teléfono vertical para que las formas coincidan.');
+  const resumen = {};
+  const backend = 'gpu' in navigator ? 'webgpu' : 'wasm'; // en la ronda anterior WebAssembly fue 2,7 veces más lento
+  log(`Modo de esta ronda: ${backend}`);
+  for (const m of MODELOS) {
+    log(`\n... probando ${m.id}`);
+    const r = await probar(video, m, backend);
+    if (r) resumen[m.id] = r.total;
+  }
+  log('\n===== RESUMEN: milisegundos por cuadro (mediana) =====');
+  for (const f of FORMAS) {
+    const n = resumen[`yolo26n_${f.id}`], s = resumen[`yolo26s_${f.id}`], h = resumen[`bili-hazards_${f.id}`];
+    log(`\nEntrada ${f.id}:`);
+    if (s && h) log(`  HOY (yolo26s + bili-hazards): ${ms(s + h)}  (~${(1000 / (s + h)).toFixed(1)} cuadros/s)`);
+    if (n) log(`  si los dos fueran tipo "n" (2 x yolo26n): ${ms(2 * n)}  (~${(1000 / (2 * n)).toFixed(1)} cuadros/s)`);
+    if (n && h) log(`  yolo26n + bili-hazards (s): ${ms(n + h)}`);
+  }
+  video.srcObject.getTracks().forEach((t) => t.stop());
+  boton.disabled = false;
+  document.getElementById('copiar').disabled = false;
+});
+
+document.getElementById('copiar').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(out.textContent); alert('Copiado'); } catch (_) { alert('No pude copiar: seleccione el texto a mano'); }
+});
+</script>
+</body>
+</html>
