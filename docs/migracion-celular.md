@@ -37,8 +37,21 @@ Si luego se confirma, se nombra.
 Umbrales medidos con el v7a en el conjunto de prueba (`scripts/movil/umbrales_abstencion.py`): ALTO donde la franja acierta más de la mitad
 de las veces, BAJO donde acierta 1 de cada 4 o menos. Fracción de objetos reales que reciben algún aviso: escaleras 0,47 -> 0,58, huecos
 0,49 -> 0,62, bordillos 0,36 -> 0,46, postes 0,26 -> 0,36. Son del conjunto de prueba general, no de la vista del celular, y de un solo
-modelo: se ajustan con `DECISION_UMBRALES` sin tocar código. Falta medir cuántos "deténgase" por minuto produce caminando: si son muchos,
-la gente deja de escucharlos (el paper lo nombra como la causa de abandono).
+modelo: se ajustan con `DECISION_UMBRALES` sin tocar código.
+
+**Cuánto habla caminando** (`scripts/movil/avisos_por_minuto.py`, v7a, un cuadro por segundo, sin el detector de COCO; mide molestia,
+no exactitud):
+
+| Regla | Recorrido propio (11,8 min): "deténgase" / con clase | Video de Diego (14,8 min) |
+|---|---|---|
+| Sin abstención (como antes) | 0 / 5,5 por min | 0 / 3,7 por min |
+| Con abstención, tal como está | **3,6** / 3,6 por min | 1,0 / 3,2 por min |
+| A: "deténgase" solo si está en el camino | 1,4 / 3,8 | 0,5 / 3,1 |
+| B: bordillo sin banda dudosa | 1,4 / 4,0 | 0,5 / 3,3 |
+| A + B | 0,7 / 4,0 | 0,2 / 3,2 |
+
+Tal como está pediría detenerse cada ~17 s en el recorrido propio; 28 de esos 43 "deténgase" son bordillos dudosos, casi siempre a un
+lado. **Pendiente de decidir** entre A, B o A + B.
 
 ## Fases
 
