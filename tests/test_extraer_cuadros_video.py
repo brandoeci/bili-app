@@ -46,3 +46,9 @@ def test_un_suelo_liso_sin_color_de_piel_no_es_un_dedo():
     piel = gris.copy()
     piel[470:, :, :] = (120, 150, 230)       # BGR de un tono piel liso en el 26 % inferior
     assert ev.fraccion_dedo(piel) > 0.06
+
+
+def test_el_umbral_de_nitidez_se_puede_cambiar_por_video():
+    assert ev.motivo_descarte(300, 150, 0.01) == 'borroso'
+    assert ev.motivo_descarte(300, 150, 0.01, umbral_borroso=0) == ''          # otra cámara: ese 300 no es desenfoque
+    assert ev.motivo_descarte(300, 150, 0.10, umbral_borroso=0) == 'dedo en el lente'   # los otros filtros siguen activos

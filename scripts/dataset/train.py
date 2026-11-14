@@ -29,6 +29,9 @@ def main() -> None:
     ap.add_argument('--batch', type=int, default=16)
     ap.add_argument('--device', default=None, help='0 para la primera GPU, cpu, mps')
     ap.add_argument('--project', type=Path, default=ROOT / 'runs', help='dónde guardar; en Colab, una carpeta de Drive')
+    # Solo para afinar desde un modelo ya entrenado con pocas épocas. Los valores por defecto son los de Ultralytics: sin pasarlos, nada cambia.
+    ap.add_argument('--close-mosaic', type=int, default=10, help='épocas finales sin mosaico; con pocas épocas bájelo (p. ej. 2)')
+    ap.add_argument('--warmup-epochs', type=float, default=3.0, help='épocas de calentamiento; al afinar, 1')
     args = ap.parse_args()
 
     if not args.data.exists():
@@ -43,6 +46,7 @@ def main() -> None:
         patience=15,          # corta si no mejora
         fliplr=0.5, flipud=0.0,  # el suelo nunca va al revés; el espejo horizontal sí es válido
         mosaic=1.0, degrees=0.0,
+        close_mosaic=args.close_mosaic, warmup_epochs=args.warmup_epochs,
     )
     metrics = model.val(data=str(args.data), split='test')
     print('\nmAP50-95 en test:', round(float(metrics.box.map), 3), '· mAP50:', round(float(metrics.box.map50), 3))

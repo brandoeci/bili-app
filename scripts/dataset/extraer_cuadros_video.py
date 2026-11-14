@@ -43,8 +43,10 @@ def fraccion_dedo(img: np.ndarray) -> float:
     return float((piel & liso)[int(h * 0.70):, :].mean())
 
 
-def motivo_descarte(nitidez: float, brillo: float, dedo: float) -> str:
-    return 'oscuro' if brillo < UMBRAL_OSCURO else 'dedo en el lente' if dedo > UMBRAL_DEDO else 'borroso' if nitidez < UMBRAL_BORROSO else ''
+def motivo_descarte(nitidez: float, brillo: float, dedo: float, umbral_borroso: float = UMBRAL_BORROSO) -> str:
+    """El umbral de nitidez NO es igual entre celulares: con otra cámara (más compresión, concreto liso, escaleras de cerca) la nitidez medida baja
+    sin que haya desenfoque. Con el video de un Android descartó escaleras y bordillos perfectamente nítidos: ahí se usa --umbral-borroso 0."""
+    return 'oscuro' if brillo < UMBRAL_OSCURO else 'dedo en el lente' if dedo > UMBRAL_DEDO else 'borroso' if nitidez < umbral_borroso else ''
 
 
 def metricas(img: np.ndarray) -> tuple[float, float, float]:
@@ -61,6 +63,7 @@ def main() -> None:
     ap.add_argument('--margen', type=float, default=10.0)
     ap.add_argument('--ancho', type=int, default=720)
     ap.add_argument('--muestras', type=int, default=10, help='cuadros que se comparan por segundo para escoger el más nítido')
+    ap.add_argument('--umbral-borroso', type=float, default=UMBRAL_BORROSO, help='nitidez mínima; 0 desactiva el filtro (ver motivo_descarte)')
     a = ap.parse_args()
     if a.salida.exists():
         sys.exit('La salida ya existe: no la piso. Bórrela a mano si quiere rehacerla.')
@@ -91,7 +94,7 @@ def main() -> None:
                 n, b, p, img, idx = mejor
                 h = round(img.shape[0] * a.ancho / img.shape[1])
                 img = cv2.resize(img, (a.ancho, h), interpolation=cv2.INTER_AREA)
-                motivo = motivo_descarte(n, b, p)
+                motivo = motivo_descarte(n, b, p, a.umbral_borroso)
                 nombre = f'{a.video.stem}_{seg:04d}s.jpg'
                 carpeta = 'descartados' if motivo else 'cuadros'
                 cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tofile(str(a.salida / carpeta / nombre))
