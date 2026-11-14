@@ -17,6 +17,8 @@ class Detection(BaseModel):
     ttc_s: float | None = None
     priority: Literal['P0', 'P1', 'P2', 'P3'] = 'P3'
     note: str | None = None  # indicación extra para la alerta (p. ej. 'Libre a su derecha')
+    # Zona de cercanía (ver app/core/proximity.py). None = sin zonas: las alertas se comportan como antes.
+    zone: Literal['muy_cerca', 'urgente', 'aviso', 'lejos'] | None = None
 
 
 class Alert(BaseModel):

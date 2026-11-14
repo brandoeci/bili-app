@@ -52,6 +52,25 @@ class Settings(BaseSettings):
     alerts_min_frames: int = 2
     alerts_max_speech_rate_s: float = 1.5
 
+    # Zonas de cercanía (ver app/core/proximity.py). Sobre la distancia ESTIMADA, no la real. Valores provisionales: ajustar en .env.
+    # `size`: objetos que se miden por su tamaño (persona, silla, carro...). `ground`: los que se miden por dónde tocan el suelo (poste, bordillo, hueco...).
+    prox_size_near_m: float = 1.5      # menos de esto: "muy cerca"
+    prox_size_urgent_m: float = 2.0    # menos de esto: "a menos de dos metros"
+    prox_size_warn_m: float = 3.5      # menos de esto: aviso; más: lejos
+    prox_ground_near_m: float = 2.1
+    prox_ground_urgent_m: float = 3.0
+    prox_ground_warn_m: float = 5.0
+    prox_hysteresis: float = 1.15
+
+    def proximity_config(self):
+        from app.core.proximity import ProximityConfig, Thresholds
+
+        return ProximityConfig(
+            size=Thresholds(self.prox_size_near_m, self.prox_size_urgent_m, self.prox_size_warn_m),
+            ground=Thresholds(self.prox_ground_near_m, self.prox_ground_urgent_m, self.prox_ground_warn_m),
+            hysteresis=self.prox_hysteresis,
+        )
+
     audio_voice: str = 'Mónica'
     audio_rate_wpm: int = 190
     audio_earcons: bool = True

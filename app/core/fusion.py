@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from app.core.labels import GROUND, HAZARDS, MOVING, REAL_HEIGHT_M, REAL_WIDTH_M, VEHICLES
+from app.core.proximity import ProximityConfig
 from app.schemas import Detection
 
 _CAMERA_HEIGHT_M = 1.3
@@ -23,14 +24,16 @@ class _TrackState:
     distance_m: float
     speed_mps: float
     ts: float
+    zone: str | None = None
 
 
 class FusionEngine:
     """Convierte detecciones crudas en detecciones con dirección, distancia
     suavizada, velocidad de aproximación, TTC y prioridad."""
 
-    def __init__(self, focal_ratio: float = _DEFAULT_FOCAL_RATIO) -> None:
+    def __init__(self, focal_ratio: float = _DEFAULT_FOCAL_RATIO, proximity: ProximityConfig | None = None) -> None:
         self.focal_ratio = focal_ratio
+        self.proximity = proximity or ProximityConfig()
         self._tracks: dict[int, _TrackState] = {}
 
     def update(
@@ -66,15 +69,16 @@ class FusionEngine:
                 ratio = max(measured, geometric) / max(min(measured, geometric), 1e-3)
                 distance = min(measured, geometric) if ratio > 2.0 else 0.7 * measured + 0.3 * geometric
             speed, ttc = det.approach_speed_mps, det.ttc_s
+            prev = self._tracks.get(det.track_id) if det.track_id is not None else None
+            if prev is not None:
+                distance = _EMA_ALPHA * distance + (1 - _EMA_ALPHA) * prev.distance_m
+                dt = max(1e-3, now - prev.ts)
+                inst = (prev.distance_m - distance) / dt
+                speed = _EMA_ALPHA * inst + (1 - _EMA_ALPHA) * prev.speed_mps
+                ttc = distance / speed if speed > 0.3 else None
+            zone = self.proximity.zone(label, float(distance), prev.zone if prev is not None else None)
             if det.track_id is not None:
-                prev = self._tracks.get(det.track_id)
-                if prev is not None:
-                    distance = _EMA_ALPHA * distance + (1 - _EMA_ALPHA) * prev.distance_m
-                    dt = max(1e-3, now - prev.ts)
-                    inst = (prev.distance_m - distance) / dt
-                    speed = _EMA_ALPHA * inst + (1 - _EMA_ALPHA) * prev.speed_mps
-                    ttc = distance / speed if speed > 0.3 else None
-                self._tracks[det.track_id] = _TrackState(distance, speed or 0.0, now)
+                self._tracks[det.track_id] = _TrackState(distance, speed or 0.0, now, zone)
 
             results.append(
                 Detection(
@@ -87,7 +91,8 @@ class FusionEngine:
                     distance_m=round(float(distance), 2),
                     approach_speed_mps=None if speed is None else round(float(speed), 2),
                     ttc_s=None if ttc is None else round(float(ttc), 1),
-                    priority=self.priority(label, distance, direction, ttc),
+                    priority=self.priority(label, distance, direction, ttc, zone),
+                    zone=zone,
                 )
             )
         return results
@@ -153,7 +158,26 @@ class FusionEngine:
         return self.focal_ratio
 
     @staticmethod
-    def priority(label: str, distance: float, direction: str, ttc: float | None = None) -> str:
+    def priority(label: str, distance: float, direction: str, ttc: float | None = None, zone: str | None = None) -> str:
+        """Prioridad por clase y distancia, con un PISO que depende de la zona de cercanía: lo que está muy cerca no puede quedar en una prioridad baja
+        aunque la estimación de distancia (que se infla de cerca) diga otra cosa."""
+        base = FusionEngine._base_priority(label, distance, direction, ttc)
+        if zone is None or label == 'manhole':
+            return base                                    # una tapa puesta nunca es un aviso
+        in_path = direction == 'center'
+        floor = 'P3'
+        if zone == 'muy_cerca':
+            critical = label in HAZARDS or label in MOVING or label in GROUND
+            if label in HAZARDS or (in_path and critical):
+                floor = 'P0'
+            elif in_path or label in MOVING:
+                floor = 'P1'
+        elif zone == 'urgente' and in_path:
+            floor = 'P1'
+        return min(base, floor)                            # 'P0' < 'P1' < ... como texto: la más urgente de las dos
+
+    @staticmethod
+    def _base_priority(label: str, distance: float, direction: str, ttc: float | None = None) -> str:
         in_path = direction == 'center'
         if ttc is not None and ttc < 2.5 and (label in MOVING or label in HAZARDS):
             return 'P0'

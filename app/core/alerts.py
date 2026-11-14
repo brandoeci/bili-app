@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 from app.core.labels import LABELS_ES, label_es  # noqa: F401  (LABELS_ES se reexporta por compatibilidad)
+from app.core.proximity import ZONE_INDEX, spoken_for_zone
 from app.schemas import Alert, Detection
 
 _RANK = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
@@ -19,6 +20,13 @@ def _band(distance_m: float) -> int:
         if distance_m < edge:
             return index
     return len(_BAND_EDGES)
+
+
+def _band_of(det: Detection) -> int:
+    """Banda de cercanía de una detección: su zona si la trae (ver proximity.py); si no, la banda por distancia de siempre."""
+    if det.zone is not None:
+        return ZONE_INDEX[det.zone]
+    return _band(det.distance_m or 99)
 
 
 @dataclass
@@ -96,7 +104,7 @@ class AlertManager:
                 )
             )
             mem.announced_at = now
-            mem.announced_band = _band(det.distance_m)
+            mem.announced_band = _band_of(det)
             mem.announced_direction = det.direction
             mem.announced_priority = det.priority
             self._last_emit_at = now
@@ -105,13 +113,17 @@ class AlertManager:
     def _should_announce(self, det: Detection, mem: _Memory, now: float) -> str | None:
         if det.priority != 'P0' and mem.frames < self.min_frames:
             return None  # filtra parpadeos de un solo frame
-        band = _band(det.distance_m or 99)
+        band = _band_of(det)
         if mem.announced_at is None:
             return 'new'
         since = now - mem.announced_at
-        # Histéresis: sólo se "re-arma" una banda si el objeto se alejó claramente de ella.
         distance = det.distance_m or 99
-        if mem.announced_band < len(_BAND_EDGES) and distance > _BAND_EDGES[mem.announced_band] * 1.25:
+        if det.zone is not None:
+            # Con zonas la histéresis ya la hace la fusión: si pasó a una zona más lejana, se re-arma y volverá a avisar al acercarse de nuevo.
+            if band > mem.announced_band:
+                mem.announced_band = band
+        # Histéresis: sólo se "re-arma" una banda si el objeto se alejó claramente de ella.
+        elif mem.announced_band < len(_BAND_EDGES) and distance > _BAND_EDGES[mem.announced_band] * 1.25:
             mem.announced_band = band
         if _RANK[det.priority] < _RANK[mem.announced_priority] and since >= 1.0:
             return 'escalated'
@@ -145,7 +157,8 @@ class AlertManager:
     def _phrase_for(cls, det: Detection, reason: str = 'new') -> str:
         side = {'left': 'a su izquierda', 'right': 'a su derecha'}.get(det.direction, 'al frente')
         label = label_es(det.label)
-        dist = cls.spoken_distance(det.distance_m) if det.distance_m is not None else ''
+        # En las dos zonas más cercanas el número no es fiable (la estimación se infla): se dice "muy cerca" o "a menos de dos metros".
+        dist = spoken_for_zone(det.zone) or (cls.spoken_distance(det.distance_m) if det.distance_m is not None else '')
         approaching = (det.ttc_s is not None and det.ttc_s < 4.0) or (det.approach_speed_mps or 0) > 0.6
         tail = ', se acerca' if approaching else ''
         note = f'. {det.note}' if det.note and reason != 'reminder' else ''

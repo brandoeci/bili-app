@@ -65,7 +65,7 @@ class VisionContext:
         ) if hazard_path.exists() else None
         self.depth = DepthModel(enabled=self.settings.depth_enabled, model_id=self.settings.depth_model, input_px=self.settings.depth_input_px)
         self._calibration_file = self.settings.base_dir / 'data' / 'calibration.json'
-        self.fusion = FusionEngine(focal_ratio=self._load_focal_ratio())
+        self.fusion = FusionEngine(focal_ratio=self._load_focal_ratio(), proximity=self.settings.proximity_config())
         self.alerts = AlertManager(
             critical_distance_m=self.settings.alerts_critical_distance_m,
             release_distance_m=self.settings.alerts_release_distance_m,
