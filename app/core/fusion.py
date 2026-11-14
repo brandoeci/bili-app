@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from app.core.decision import conducta as decidir
 from app.core.labels import GROUND, HAZARDS, MOVING, REAL_HEIGHT_M, REAL_WIDTH_M, VEHICLES
 from app.core.proximity import ProximityConfig
 from app.schemas import Detection
@@ -31,9 +32,14 @@ class FusionEngine:
     """Convierte detecciones crudas en detecciones con dirección, distancia
     suavizada, velocidad de aproximación, TTC y prioridad."""
 
-    def __init__(self, focal_ratio: float = _DEFAULT_FOCAL_RATIO, proximity: ProximityConfig | None = None) -> None:
+    def __init__(self, focal_ratio: float = _DEFAULT_FOCAL_RATIO, proximity: ProximityConfig | None = None,
+                 decision: dict[str, tuple[float, float]] | None = None, decidir_conducta: bool = False) -> None:
+        """decidir_conducta: si es True, cada detección sale con su conducta (avisar / incertidumbre / callar) según los umbrales
+        `decision` (clase -> (bajo, alto); None = los de app/core/decision.py)."""
         self.focal_ratio = focal_ratio
         self.proximity = proximity or ProximityConfig()
+        self.decision = decision
+        self.decidir_conducta = decidir_conducta
         self._tracks: dict[int, _TrackState] = {}
 
     def update(
@@ -41,9 +47,10 @@ class FusionEngine:
         detections: list[Detection | dict[str, Any]],
         depth_map: np.ndarray | None,
         frame_shape: tuple[int, ...],
+        now: float | None = None,
     ) -> list[Detection]:
         h, w = frame_shape[:2]
-        now = time.monotonic()
+        now = time.monotonic() if now is None else now
         self._tracks = {k: v for k, v in self._tracks.items() if now - v.ts < _TRACK_TTL_S}
         results: list[Detection] = []
 
@@ -80,6 +87,7 @@ class FusionEngine:
             if det.track_id is not None:
                 self._tracks[det.track_id] = _TrackState(distance, speed or 0.0, now, zone)
 
+            prioridad = self.priority(label, distance, direction, ttc, zone)
             results.append(
                 Detection(
                     track_id=det.track_id,
@@ -91,8 +99,9 @@ class FusionEngine:
                     distance_m=round(float(distance), 2),
                     approach_speed_mps=None if speed is None else round(float(speed), 2),
                     ttc_s=None if ttc is None else round(float(ttc), 1),
-                    priority=self.priority(label, distance, direction, ttc, zone),
+                    priority=prioridad,
                     zone=zone,
+                    conducta=decidir(label, det.conf, prioridad, self.decision) if self.decidir_conducta else None,
                 )
             )
         return results

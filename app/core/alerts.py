@@ -38,6 +38,7 @@ class _Memory:
     announced_band: int = 99
     announced_direction: str = ''
     announced_priority: str = 'P3'
+    announced_conducta: str | None = None
 
 
 class AlertManager:
@@ -71,7 +72,7 @@ class AlertManager:
 
         candidates: list[tuple[int, float, Detection, str, _Memory]] = []
         for det in detections:
-            if det.distance_m is None or det.priority == 'P3':
+            if det.distance_m is None or det.priority == 'P3' or det.conducta == 'callar':
                 continue
             key: object = det.track_id if det.track_id is not None else (det.label, det.direction)
             mem = self._memory.get(key)
@@ -97,7 +98,8 @@ class AlertManager:
                 Alert(
                     id=f'alert-{next(self._ids)}',
                     ts=wall,
-                    priority=det.priority,
+                    # Pedir que se detenga es información de seguridad: prioridad máxima de voz (paper, "dos voces que no pueden hablar a la vez").
+                    priority='P0' if det.conducta == 'incertidumbre' else det.priority,
                     text=self._phrase_for(det, reason),
                     source='reflex',
                     track_id=det.track_id,
@@ -107,6 +109,7 @@ class AlertManager:
             mem.announced_band = _band_of(det)
             mem.announced_direction = det.direction
             mem.announced_priority = det.priority
+            mem.announced_conducta = det.conducta
             self._last_emit_at = now
         return alerts
 
@@ -125,6 +128,8 @@ class AlertManager:
         # Histéresis: sólo se "re-arma" una banda si el objeto se alejó claramente de ella.
         elif mem.announced_band < len(_BAND_EDGES) and distance > _BAND_EDGES[mem.announced_band] * 1.25:
             mem.announced_band = band
+        if mem.announced_conducta == 'incertidumbre' and det.conducta == 'avisar' and since >= 1.0:
+            return 'confirmed'   # se pidió detenerse sin saber qué era; ahora el modelo lo reconoce: se nombra
         if _RANK[det.priority] < _RANK[mem.announced_priority] and since >= 1.0:
             return 'escalated'
         if band < mem.announced_band and since >= 1.0:
@@ -156,6 +161,9 @@ class AlertManager:
     @classmethod
     def _phrase_for(cls, det: Detection, reason: str = 'new') -> str:
         side = {'left': 'a su izquierda', 'right': 'a su derecha'}.get(det.direction, 'al frente')
+        if det.conducta == 'incertidumbre':
+            # QA-3: se pide detenerse SIN nombrar la clase (la confianza no alcanza para afirmarla) y sin una distancia que no es fiable.
+            return f'Deténgase: hay algo {side} y no estoy seguro de qué es'
         label = label_es(det.label)
         # En las dos zonas más cercanas el número no es fiable (la estimación se infla): se dice "muy cerca" o "a menos de dos metros".
         dist = spoken_for_zone(det.zone) or (cls.spoken_distance(det.distance_m) if det.distance_m is not None else '')

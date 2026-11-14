@@ -27,13 +27,27 @@ el texto del aviso. Eso incumple, por construcción, varios escenarios de calida
   teléfonos lentos; su costo está medido (v6b: recall de poste 0,29 → 0,21, de bordillo 0,40 → 0,31 en la prueba general).
 - **El modelo se elige con los exámenes**, no por versión.
 
+## Motor de decisión y abstención (QA-3)
+
+`app/core/decision.py` (y su copia `web/bili/decision.js`) convierte cada detección en una conducta. Primero la relevancia y después la
+confianza: lo irrelevante (P3) se calla; por encima del umbral ALTO se avisa nombrando la clase; entre el BAJO y el ALTO, si está cerca o
+en el camino (P0/P1), se dice "Deténgase: hay algo al frente y no estoy seguro de qué es" con prioridad máxima de voz; por debajo, silencio.
+Si luego se confirma, se nombra.
+
+Umbrales medidos con el v7a en el conjunto de prueba (`scripts/movil/umbrales_abstencion.py`): ALTO donde la franja acierta más de la mitad
+de las veces, BAJO donde acierta 1 de cada 4 o menos. Fracción de objetos reales que reciben algún aviso: escaleras 0,47 -> 0,58, huecos
+0,49 -> 0,62, bordillos 0,36 -> 0,46, postes 0,26 -> 0,36. Son del conjunto de prueba general, no de la vista del celular, y de un solo
+modelo: se ajustan con `DECISION_UMBRALES` sin tocar código. Falta medir cuántos "deténgase" por minuto produce caminando: si son muchos,
+la gente deja de escucharlos (el paper lo nombra como la causa de abandono).
+
 ## Fases
 
 | Fase | Qué | Cómo se sabe que sirvió | Estado |
 |---|---|---|---|
 | 1 | Detector en el celular: letterbox, decodificación y NMS en JS (`web/bili/deteccion.js`) | mismas detecciones que Python con el mismo ONNX; mismas métricas con el relleno del celular | **hecho en el PC**: 46 de 46 detecciones idénticas en 60 cuadros reales; examen de bordillos igual con el ONNX (v7a recall 0,26) |
 | 1b | Medirlo en teléfonos: iPhone 14 Pro y un Android de gama media | ms por cuadro (mediana y p95) con el modelo elegido | pendiente |
-| 2 | Motor de decisión en JS: seguimiento, distancia, zonas de cercanía, prioridades y **abstención (QA-3)** | los mismos casos de prueba dan lo mismo en Python y en JS | pendiente |
+| 2 | Motor de decisión en JS: distancia, zonas de cercanía, prioridades, **abstención (QA-3)** y alertas (`web/bili/{fusion,decision,alertas,cercania,etiquetas}.js`) | los mismos casos dan lo mismo en Python y en JS | **hecho**: 200 escenarios, 9 025 cuadros, 776 alertas (77 de "deténgase"), 0 diferencias; la prueba corre en `pytest` |
+| 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | pendiente |
 | 3 | App: cámara, Worker, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | pendiente |
 | 4 | Instrumentación: latencia captura → `onstart` de la voz (QA-1) y registro local de cada aviso (QA-8) | p95 < 500 ms; 100 % de avisos con los cuatro campos | pendiente |
 | 5 | Sostenido (QA-7): 30 min caminando, latencia y batería, en gama media | minuto 30 ≤ 1,2 × minuto 1; ≥ 1 h | pendiente |

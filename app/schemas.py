@@ -19,6 +19,8 @@ class Detection(BaseModel):
     note: str | None = None  # indicación extra para la alerta (p. ej. 'Libre a su derecha')
     # Zona de cercanía (ver app/core/proximity.py). None = sin zonas: las alertas se comportan como antes.
     zone: Literal['muy_cerca', 'urgente', 'aviso', 'lejos'] | None = None
+    # Conducta del motor de decisión (ver app/core/decision.py). None = sin motor: se avisa como antes.
+    conducta: Literal['avisar', 'incertidumbre', 'callar'] | None = None
 
 
 class Alert(BaseModel):

@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     # Umbral más estricto para las escaleras. Medido a ojo en 6 980 vistas de Bogotá: a 0.35 el modelo daba 76 alarmas y 38 eran reales (50 %);
     # a 0.50, 55 alarmas y 33 reales (60 %). Se pierden 5 escaleras de 38 a cambio de quitar 16 falsas. Por variable de entorno: HAZARD_CLASS_CONF='{"stairs": 0.6}'
     hazard_class_conf: dict[str, float] = {'stairs': 0.5, 'stairs_up': 0.5, 'stairs_down': 0.5}
+    # Motor de decisión con abstención (app/core/decision.py). Con él, el detector de peligros deja pasar desde el menor umbral BAJO y los
+    # umbrales por clase de arriba ya no se aplican en el detector: la franja entre BAJO y ALTO se convierte en "deténgase" en vez de silencio.
+    # Umbrales (clase -> [bajo, alto]); vacío = los medidos que trae decision.py. Ej.: DECISION_UMBRALES='{"stairs": [0.3, 0.5]}'
+    decision_abstencion: bool = True
+    decision_umbrales: dict[str, list[float]] = {}
+
+    def tabla_decision(self) -> dict[str, tuple[float, float]]:
+        from app.core.decision import UMBRALES
+
+        return {**UMBRALES, **{k: (float(v[0]), float(v[1])) for k, v in self.decision_umbrales.items()}}
 
     depth_enabled: bool = True
     depth_model: str = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf'  # Outdoor-Small-hf para exteriores

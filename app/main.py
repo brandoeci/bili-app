@@ -22,6 +22,7 @@ from app.audio.tts import Speaker
 from app.config import settings
 from app.core.alerts import AlertManager
 from app.core.camera import CaptureThread, RemoteCamera
+from app.core.decision import confianza_minima
 from app.core.depth import DepthModel
 from app.core.detector import YoloDetector
 from app.core.events import EventBus
@@ -55,17 +56,21 @@ class VisionContext:
             device=self.settings.detector_device,
         )
         hazard_path = self.settings.base_dir / self.settings.hazard_model
+        abstencion = self.settings.decision_abstencion
+        tabla = self.settings.tabla_decision()
         self.hazard_detector = YoloDetector(
             model_path=str(hazard_path),
-            conf=self.settings.hazard_conf,
+            # Con abstención, el detector deja pasar la banda intermedia y el motor de decisión decide qué decir con ella.
+            conf=min(self.settings.hazard_conf, confianza_minima(tabla)) if abstencion else self.settings.hazard_conf,
             iou=self.settings.detector_iou,
             device=self.settings.detector_device,
             id_offset=100_000,
-            class_conf=self.settings.hazard_class_conf,
+            class_conf={} if abstencion else self.settings.hazard_class_conf,
         ) if hazard_path.exists() else None
         self.depth = DepthModel(enabled=self.settings.depth_enabled, model_id=self.settings.depth_model, input_px=self.settings.depth_input_px)
         self._calibration_file = self.settings.base_dir / 'data' / 'calibration.json'
-        self.fusion = FusionEngine(focal_ratio=self._load_focal_ratio(), proximity=self.settings.proximity_config())
+        self.fusion = FusionEngine(focal_ratio=self._load_focal_ratio(), proximity=self.settings.proximity_config(),
+                                   decision=tabla, decidir_conducta=abstencion)
         self.alerts = AlertManager(
             critical_distance_m=self.settings.alerts_critical_distance_m,
             release_distance_m=self.settings.alerts_release_distance_m,
