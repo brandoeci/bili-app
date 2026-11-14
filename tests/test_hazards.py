@@ -17,7 +17,7 @@ def test_new_labels_are_spoken_in_spanish():
     assert label_es('pothole') == 'hueco' and label_es('curb') == 'bordillo'
     assert label_es('pole') == 'poste' and label_es('manhole') == 'tapa de alcantarilla'
     assert gender_article('manhole') == 'una' and gender_article('pothole') == 'un'
-    assert {'pothole', 'curb'} <= HAZARDS and GROUND == {'pothole', 'manhole', 'curb'}
+    assert {'pothole', 'curb'} <= HAZARDS and {'pothole', 'manhole', 'curb', 'pole', 'obstacle', 'stairs'} <= GROUND
 
 
 def test_ground_distance_shrinks_as_the_hazard_gets_lower_in_the_image():
@@ -29,6 +29,28 @@ def test_ground_distance_shrinks_as_the_hazard_gets_lower_in_the_image():
     # más cerca no se ve el suelo.
     assert 2.5 < near < 3.2
     assert fusion._ground_distance((300, 100, 340, 200), W, H) == 10.0   # sobre el horizonte: lejano
+
+
+def test_pole_is_measured_from_its_base_not_its_height():
+    """Un poste cortado por arriba medido con 0,7 m de altura saldría a ~1 m aunque esté lejos."""
+    fusion = FusionEngine(focal_ratio=0.8)
+    lejos = fusion.update([_det('pole', (300, 0, 330, 300))], None, (H, W, 3))[0]    # base apenas bajo el horizonte
+    assert lejos.distance_m > 5.0
+
+
+def test_base_cut_by_the_bottom_edge_is_never_farther_than_the_edge_distance():
+    fusion = FusionEngine(focal_ratio=0.8)
+    entera = fusion._ground_distance((250, 300, 390, 470), W, H)
+    cortada = fusion._ground_distance((250, 300, 390, 480), W, H)
+    assert cortada < entera and cortada < 2.0
+
+
+def test_small_objects_have_their_own_height():
+    # Mismo tamaño en pantalla: un portátil (0,28 m) está mucho más cerca que lo que daría el 0,7 m por defecto.
+    # Un motor por clase: con el mismo track_id el suavizado mezclaría las dos medidas.
+    laptop = FusionEngine(focal_ratio=0.8).update([_det('laptop', (200, 200, 440, 330))], None, (H, W, 3))[0].distance_m
+    otro = FusionEngine(focal_ratio=0.8).update([_det('kite', (200, 200, 440, 330))], None, (H, W, 3))[0].distance_m
+    assert laptop < otro * 0.5
 
 
 def test_pothole_is_not_measured_by_its_height():

@@ -52,15 +52,19 @@ REAL_HEIGHT_M: dict[str, float] = {
     'bicycle': 1.0, 'chair': 0.9, 'bench': 0.8, 'couch': 0.9, 'bed': 0.6,
     'dining table': 0.75, 'potted plant': 0.6, 'dog': 0.5, 'cat': 0.3,
     'horse': 1.6, 'traffic light': 0.9, 'stop sign': 0.75, 'fire hydrant': 0.7,
-    'suitcase': 0.6, 'backpack': 0.45, 'door': 2.0, 'stairs': 1.0, 'tv': 0.5,
+    'suitcase': 0.6, 'backpack': 0.45, 'door': 2.0, 'tv': 0.5,
     'refrigerator': 1.7, 'umbrella': 0.9, 'skateboard': 0.12,
+    # Objetos pequeños: sin altura propia se medían como de 0,7 m y salían mucho más lejos de lo real.
+    # Dependen de cómo estén puestos (abierto/cerrado, de pie/acostado): son estimaciones gruesas.
+    'laptop': 0.28, 'cell phone': 0.15, 'bottle': 0.25, 'parking meter': 1.3, 'toilet': 0.7, 'sink': 0.3,
 }
 
 VEHICLES = {'car', 'truck', 'bus', 'motorcycle', 'bicycle'}
 MOVING = VEHICLES | {'person', 'dog', 'cat', 'horse', 'skateboard'}
 HAZARDS = {'obstacle', 'drop', 'stairs', 'stairs_up', 'stairs_down', 'step_up', 'wall', 'pothole', 'curb'}
-# Cosas que están sobre el suelo: su altura en la imagen no sirve para medir distancia (un hueco es plano).
-GROUND = {'pothole', 'manhole', 'curb'}
+# Cosas que apoyan en el suelo y no tienen una altura fija (un hueco es plano, un poste mide de 4 a 8 m y casi
+# siempre sale cortado por arriba): se miden por dónde tocan el suelo en la imagen, no por su altura.
+GROUND = {'pothole', 'manhole', 'curb', 'pole', 'obstacle', 'drop', 'wall', 'stairs', 'stairs_up', 'stairs_down', 'step_up'}
 
 
 def label_es(label: str) -> str:

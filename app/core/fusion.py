@@ -12,6 +12,7 @@ from app.schemas import Detection
 _CAMERA_HEIGHT_M = 1.3
 _GROUND_FAR_M = 10.0
 _DEFAULT_HEIGHT_M = 0.7
+_CLIPPED_BASE_FACTOR = 0.5
 _DEFAULT_FOCAL_RATIO = 0.8  # focal/ancho; se calibra con /v1/calibrate
 _EMA_ALPHA = 0.5
 _TRACK_TTL_S = 2.0
@@ -136,7 +137,12 @@ class FusionEngine:
         below = bbox[3] - h / 2
         if below < 2:
             return _GROUND_FAR_M
-        return min(_GROUND_FAR_M, max(0.3, _CAMERA_HEIGHT_M * self.focal_ratio * w / below))
+        distance = min(_GROUND_FAR_M, max(0.3, _CAMERA_HEIGHT_M * self.focal_ratio * w / below))
+        if bbox[3] >= h - 2:
+            # La base se sale por abajo: lo calculado es la distancia MÁXIMA (más cerca no se ve el suelo).
+            # Se toma la mitad para no decir que está más lejos de lo que está (factor a ojo, sin medir).
+            return max(0.3, distance * _CLIPPED_BASE_FACTOR)
+        return distance
 
     def calibrate(self, label: str, bbox: tuple[int, int, int, int], w: int, known_distance_m: float) -> float:
         """Ajusta la focal para que este bbox corresponda a la distancia real medida."""
