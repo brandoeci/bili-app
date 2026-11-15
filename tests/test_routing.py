@@ -340,14 +340,15 @@ def test_fallo_del_proveedor_no_filtra_detalles(api):
     assert 'SECRETA' not in r.text
 
 
-def test_demasiado_lejos_dice_que_lugar_encontro(api):
+def test_muy_lejos_no_se_bloquea_se_advierte_y_dice_que_lugar_encontro(api):
     client, provider, _ = api
     provider.ruta = ruta_demo(distancia=45000)
     provider.geo = (LatLng(lat=4.65, lng=-74.06), 'Cl. 72 #10-34, Medellín')
     r = client.post('/v1/rutas', json={'origen': ORIGEN, 'destino_texto': 'calle 72 con 10'})
-    assert r.status_code == 422
-    detalle = r.json()['detail']
-    assert 'Medellín' in detalle and '45 kilómetros' in detalle  # la persona oye qué se encontró y a cuánto queda
+    assert r.status_code == 200   # la persona decide: el teléfono pregunta "¿Comienzo?" igual que siempre
+    body = r.json()
+    assert body['destino_confirmado'] == 'Cl. 72 #10-34, Medellín'   # lo que se encontró se dice en voz alta
+    assert any('45 kilómetros' in a and 'diga no' in a for a in body['advertencias'])
 
 
 def test_una_caminata_larga_pero_posible_si_se_ofrece(api):

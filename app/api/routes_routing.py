@@ -81,11 +81,11 @@ async def calcular_ruta(
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail='No se pudo calcular la ruta ahora') from exc
 
+    # Sin tope de distancia: quien quiera caminar una hora (o más) puede. Muy lejos suele ser que Google ubicó otro lugar con el mismo
+    # nombre (otra ciudad): eso no se bloquea, se advierte, y el teléfono dice qué encontró y a cuánto, y pregunta si es ahí.
     if ruta.distancia_m > settings.routes_max_walk_m:
-        # Se dice qué lugar se encontró: si Google lo ubicó mal, la persona se entera y puede corregirlo.
-        lugar = confirmado or 'ese lugar'
         km = round(ruta.distancia_m / 1000)
-        raise HTTPException(status_code=422, detail=f'Encontré {lugar}, pero queda a {km} kilómetros. Es demasiado lejos para ir a pie.')
+        ruta.advertencias.append(f'Queda a {km} kilómetros. Si no es el lugar que buscaba, diga no y dígame el destino con más detalle.')
 
     # Cruces de calle (OpenStreetMap). Si falla, la ruta sigue valiendo, pero el cliente debe saber que no hay datos.
     try:

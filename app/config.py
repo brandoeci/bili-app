@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     google_maps_api_key: str = ''
     routes_timeout_s: float = 8.0
     routes_daily_limit: int = 300  # tope de llamadas pagas por día, para no llevarse sorpresas en la factura
-    routes_max_walk_m: int = 30000  # tope de cordura (otra ciudad, lugar mal ubicado); no es una regla de seguridad
+    routes_max_walk_m: int = 30000  # desde aquí se ADVIERTE (suele ser otro lugar con el mismo nombre); no se bloquea: la persona decide
     osm_cruces_path: Path = Path('data/osm/bogota_cruces.json')  # scripts/osm/descargar_cruces.py
 
     # Solo desarrollo: sirve la página que mide YOLO (ONNX) en el teléfono y los .onnx. Entrega el modelo propio: no activar en público.
