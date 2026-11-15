@@ -1,0 +1,8 @@
+# Construye la imagen de app/nube.py en Google Cloud Build (no hace falta Docker en el PC).
+#   gcloud builds submit --config cloudbuild.nube.yaml --substitutions=_IMAGEN=us-east1-docker.pkg.dev/PROYECTO/bili/nube
+# BuildKit para que use Dockerfile.nube.dockerignore (el .dockerignore general deja los modelos afuera).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
+    args: ['build', '-f', 'Dockerfile.nube', '-t', '${_IMAGEN}', '.']
+images: ['${_IMAGEN}']

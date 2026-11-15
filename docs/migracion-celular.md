@@ -89,13 +89,29 @@ comparar contra Python).
 | Fase | Qué | Cómo se sabe que sirvió | Estado |
 |---|---|---|---|
 | 1 | Detector en el celular: letterbox, decodificación y NMS en JS (`web/bili/deteccion.js`) | mismas detecciones que Python con el mismo ONNX; mismas métricas con el relleno del celular | **hecho en el PC**: 46 de 46 detecciones idénticas en 60 cuadros reales; examen de bordillos igual con el ONNX (v7a recall 0,26) |
-| 1b | Medirlo en teléfonos: el iPhone 14 propio y el Android de Diego | ms por cuadro (mediana y p95) con el modelo elegido | **iPhone hecho** (abajo); Android pendiente |
+| 1b | Medirlo en teléfonos: el iPhone 14 propio y el Android de Diego | ms por cuadro (mediana y p95) con el modelo elegido | **hecho** (abajo): el iPhone cumple; el Samsung A32 no |
 | 2 | Motor de decisión en JS: distancia, zonas de cercanía, prioridades, **abstención (QA-3)** y alertas (`web/bili/{fusion,decision,alertas,cercania,etiquetas}.js`) | los mismos casos dan lo mismo en Python y en JS | **hecho**: 200 escenarios, 9 025 cuadros, 776 alertas (77 de "deténgase"), 0 diferencias; la prueba corre en `pytest` |
 | 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | **hecho** con ByteTrack: 0 diferencias en 9 352 cuadros; sin compensación de movimiento llega el 52 % de las detecciones en vez del 70 % |
-| 3 | App: cámara, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | **construida** (`/local`, `web/local.html` y `web/sw.js`); falta probarla en el iPhone y en modo avión. Sin Worker por ahora: con WebGPU el modelo no bloquea la pantalla |
+| 3 | App: cámara, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | **construida** (`/local`, `web/local.html` y `web/sw.js`); probada en el iPhone el 15/11 (QA-8 30 de 30 avisos completos; captura → voz 231–250 ms con la voz libre, p95 3,8 s por la cola: arreglada con el carril `deteccion` de `voz.js`). Incluye la navegación de la versión con servidor (pregunta el destino, ruta de Google a pie, giros y cruces): la ruta se pide al servidor solo con coordenadas y después corre en el teléfono; sin red avisa que no puede buscar rutas. Sin descripción con Gemini (mandaría una imagen). Falta modo avión. Sin Worker: con WebGPU el modelo no bloquea la pantalla |
 | 4 | Instrumentación: latencia captura → `onstart` de la voz (QA-1) y registro local de cada aviso (QA-8) | p95 < 500 ms; 100 % de avisos con los cuatro campos | **construida** dentro de `/local` (cifras en pantalla y registro descargable en JSON); falta medir caminando |
 | 5 | Sostenido (QA-7): 30 min caminando, latencia y batería, en gama media | minuto 30 ≤ 1,2 × minuto 1; ≥ 1 h | pendiente |
 | 6 | Validación (E4): exámenes, video de otra persona, prueba en campo acompañada | regla de decisión del paper | pendiente |
+
+## Sin el PC: Bili en Google Cloud Run
+
+El teléfono hace todo lo de la cámara; le faltaba de dónde bajar la página y los modelos la primera vez, y quién guarde la clave de
+Google para las rutas. Eso es `app/nube.py` (sin PyTorch ni WebSocket, todo detrás de la clave), desplegado el 15/11/2026 en
+Cloud Run (`us-east1`, máximo 1 instancia, 512 MB). Imagen privada en Artifact Registry; la clave de Maps y la de acceso son
+secretos de Secret Manager (`bili-maps-key`, `bili-clave`).
+
+```
+gcloud builds submit --config cloudbuild.nube.yaml --substitutions=_IMAGEN=us-east1-docker.pkg.dev/PROYECTO/bili/nube --region us-east1 .
+gcloud run deploy bili --image us-east1-docker.pkg.dev/PROYECTO/bili/nube --region us-east1 --allow-unauthenticated \
+  --max-instances 1 --memory 512Mi --set-secrets GOOGLE_MAPS_API_KEY=bili-maps-key:latest,ONNX_SPIKE_CLAVE=bili-clave:latest
+gcloud secrets versions access latest --secret bili-clave     # la clave del enlace /local?clave=...
+```
+
+El tope de 300 rutas al día vive en memoria: si la instancia se reinicia, se reinicia la cuenta.
 
 ## Velocidad medida en el teléfono (fase 1b)
 
@@ -110,7 +126,7 @@ iPhone 14, iOS 18.7, Safari, 15/11/2026 (tres corridas; los tiempos se repiten a
 | v7a + yolo26n (personas y vehículos), WebGPU | 222 ms | 230 ms | 4,5 |
 | v7a solo, WebAssembly (respaldo) | 367 ms | 590 ms | 2,7 |
 
-Android de Diego (Android 10, Chrome 157, 8 núcleos; modelo de teléfono por confirmar), 15/11/2026, por el túnel:
+Android de Diego (Samsung Galaxy A32 4G, Helio G80, Chrome 157, 8 núcleos), 15/11/2026, por el túnel:
 
 | Configuración | Mediana | p95 |
 |---|---|---|
@@ -126,7 +142,8 @@ v7a solo con WebGPU 4 255 ms; con yolo26n 6 256 ms.
 
 **Conclusión:** en esta clase de teléfono el navegador no cumple QA-1 ni con el modelo más chico. Como prevé el paper, el camino es una app
 nativa de Android (TensorFlow Lite u ONNX Runtime con la GPU o el acelerador del teléfono) y, probablemente, un modelo de peligros tipo
-"n" con entrada más chica. Falta el nombre exacto del teléfono para saber si es la "gama media" de QA-7.
+"n" con entrada más chica. Es una gama media-baja de 2021: QA-7 queda sin cumplir en esa clase de teléfono y la app nativa
+queda como trabajo futuro.
 
 - Los dos modelos caben en QA-1 en el iPhone, con ~270 ms para que empiece la voz (falta medirla: fase 4).
 - Sin WebGPU no se cumple: el p95 con WebAssembly pasa de 500 ms con un solo modelo.

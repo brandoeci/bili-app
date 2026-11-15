@@ -1,0 +1,10 @@
+# Lo que NO entra a la imagen de la nube. Lo de models/ y data/ entra solo lo que nombra Dockerfile.nube.
+**
+!requirements-nube.txt
+!app/**
+!web/**
+!data/osm/bogota_cruces.json
+!models/onnx/bili-hazards-v7a_640x480.onnx
+!models/onnx/yolo26n_640x480.onnx
+**/__pycache__
+**/*.py[cod]

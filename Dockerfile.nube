@@ -1,0 +1,20 @@
+# Bili en Google Cloud Run (app/nube.py): la página /local, sus módulos, los dos modelos que usa y las rutas a pie.
+#   docker build -f Dockerfile.nube -t bili-nube .
+#   docker run -p 8080:8080 -e ONNX_SPIKE_CLAVE=... -e GOOGLE_MAPS_API_KEY=... bili-nube
+# Los modelos quedan dentro de la imagen, que es privada (Artifact Registry): no se publican.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=8080
+
+WORKDIR /srv
+COPY requirements-nube.txt .
+RUN pip install -r requirements-nube.txt
+
+COPY app ./app
+COPY web ./web
+COPY data/osm/bogota_cruces.json ./data/osm/bogota_cruces.json
+COPY models/onnx/bili-hazards-v7a_640x480.onnx models/onnx/yolo26n_640x480.onnx ./models/onnx/
+
+RUN useradd --no-create-home bili
+USER bili
+CMD ["sh", "-c", "exec uvicorn app.nube:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]

@@ -1,0 +1,18 @@
+# Lo que se sube a Cloud Build: solo lo que necesita Dockerfile.nube (nada de .env, datos de entrenamiento ni otros modelos).
+**
+!requirements-nube.txt
+!Dockerfile.nube
+!Dockerfile.nube.dockerignore
+!cloudbuild.nube.yaml
+!app/
+!app/**
+!web/
+!web/**
+!data/
+!data/osm/
+!data/osm/bogota_cruces.json
+!models/
+!models/onnx/
+!models/onnx/bili-hazards-v7a_640x480.onnx
+!models/onnx/yolo26n_640x480.onnx
+**/__pycache__/
