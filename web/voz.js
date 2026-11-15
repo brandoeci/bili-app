@@ -7,6 +7,7 @@
  *    las alertas normales del detector esperan su turno en vez de colarse entre sus frases. Lo urgente no se borra: las frases del
  *    diálogo que estaban en cola se conservan y se dicen después.
  *  - Solo la persona puede callar a Bili a mitad de frase (interruptSoft: tocó la pantalla para hablar).
+ *  - Mientras la persona habla (setListening), Bili no dice nada, ni lo urgente: lo urgente vibra y espera a que termine.
  * Sin dependencias del navegador: todo entra por `env`, así se prueba con Node y un reloj falso. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -53,8 +54,10 @@
     }
 
     function permitido(item) {
+      // La persona está hablando: NADA suena, ni lo urgente (medido con Diego: las alertas urgentes le cortaban la frase y tenía que
+      // repetir). Lo urgente vibra al llegar y se dice apenas termine de hablar; la escucha dura como mucho unos 8 s.
+      if (listening) return false;
       if (item.rank === 0) return true;
-      if (listening) return false;                       // la persona está hablando: solo lo urgente
       if (dialogoActivo && !esDialogo(item)) return false;  // el diálogo no se interrumpe con alertas normales
       return true;
     }
@@ -122,8 +125,7 @@
       }
       if (rank === 0) {
         descartar((i) => i.rank !== 0 && !esDialogo(i) && i.i === 0);   // alertas normales viejas ya no valen; el diálogo se conserva
-        if (env.vibrate) env.vibrate([200, 80, 200]);
-        if (env.interruptListen) env.interruptListen();
+        if (env.vibrate) env.vibrate([200, 80, 200]);   // ya no corta la escucha (env.interruptListen queda sin usar)
       } else if (rank === 2) {
         descartar((i) => i.rank === 2 && i.i === 0);
       }

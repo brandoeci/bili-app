@@ -147,16 +147,17 @@ test('el diálogo es atómico: mientras dura, una alerta normal del detector esp
   assert.equal(m.dichas.at(-1), 'Alerta normal del detector ahora.', 'al terminar el diálogo, se dice');
 });
 
-test('mientras la persona habla, solo lo urgente suena; lo normal espera a que termine de hablar', () => {
+test('mientras la persona habla nada la interrumpe, ni lo urgente: vibra, espera y se dice apenas termina', () => {
   const m = mundo();
   m.voz.setListening(true);
   m.voz.speak('Alto ahora.', 'P0');
-  assert.deepEqual(m.dichas, ['Alto ahora.']);
-  assert.equal(m.efectos.cortoEscucha, 1, 'y corta la escucha para que la persona lo oiga');
-  m.acabar();
   m.voz.speak('Aviso normal mientras escucha.', 'P1');
-  assert.equal(m.dichas.length, 1, 'escuchando: lo normal espera');
+  assert.deepEqual(m.dichas, [], 'escuchando: no suena nada');
+  assert.equal(m.efectos.cortoEscucha, 0, 'y no se corta la escucha');
+  assert.equal(m.efectos.vibro, 1, 'lo urgente sí vibra');
   m.voz.setListening(false);
+  assert.equal(m.dichas[0], 'Alto ahora.', 'al terminar de hablar, primero lo urgente');
+  m.acabar();
   assert.equal(m.dichas.at(-1), 'Aviso normal mientras escucha.');
 });
 
