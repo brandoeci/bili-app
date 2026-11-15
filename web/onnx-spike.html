@@ -131,17 +131,28 @@ document.getElementById('go').addEventListener('click', async (ev) => {
   ort.env.wasm.simd = true;
   ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
   const video = document.getElementById('v');
-  try {
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 480 }, height: { ideal: 640 } }, audio: false });
-    await video.play();
-    await pausa(800);
-  } catch (e) {
-    log(`No se pudo abrir la cámara: ${e.message || e}`);
-    boton.disabled = false;
-    return;
+  log(`Pantalla: ${innerWidth}x${innerHeight} (${innerHeight > innerWidth ? 'vertical' : 'horizontal'})`);
+  // iOS entiende ancho y alto según la orientación del sensor, no la de la pantalla: se prueban pedidos hasta que llegue vertical.
+  const PEDIDOS = [
+    { nombre: '640x480', video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } },
+    { nombre: 'proporción 3:4', video: { facingMode: 'environment', aspectRatio: { ideal: 3 / 4 }, height: { ideal: 640 } } },
+    { nombre: '480x640', video: { facingMode: 'environment', width: { ideal: 480 }, height: { ideal: 640 } } },
+  ];
+  for (const p of PEDIDOS) {
+    try {
+      if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
+      video.srcObject = await navigator.mediaDevices.getUserMedia({ video: p.video, audio: false });
+      await video.play();
+      await pausa(800);
+    } catch (e) {
+      log(`Pedido ${p.nombre}: no se pudo abrir la cámara (${e.message || e})`);
+      continue;
+    }
+    log(`Pedido ${p.nombre} -> cámara ${video.videoWidth}x${video.videoHeight}`);
+    if (video.videoHeight > video.videoWidth) break;
   }
-  log(`Cámara: ${video.videoWidth}x${video.videoHeight}`);
-  if (video.videoWidth > video.videoHeight) log('AVISO: la cámara salió horizontal; sostenga el teléfono vertical.');
+  if (!video.videoWidth) { log('No se pudo abrir la cámara.'); boton.disabled = false; return; }
+  if (video.videoWidth > video.videoHeight) log('AVISO: ningún pedido dio imagen vertical; la imagen entra más pequeña, con bandas grises.');
 
   const backends = 'gpu' in navigator ? ['webgpu', 'wasm'] : ['wasm'];
   const resumen = [];

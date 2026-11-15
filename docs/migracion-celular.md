@@ -89,13 +89,32 @@ comparar contra Python).
 | Fase | Qué | Cómo se sabe que sirvió | Estado |
 |---|---|---|---|
 | 1 | Detector en el celular: letterbox, decodificación y NMS en JS (`web/bili/deteccion.js`) | mismas detecciones que Python con el mismo ONNX; mismas métricas con el relleno del celular | **hecho en el PC**: 46 de 46 detecciones idénticas en 60 cuadros reales; examen de bordillos igual con el ONNX (v7a recall 0,26) |
-| 1b | Medirlo en teléfonos: el iPhone 14 propio y el Android de Diego | ms por cuadro (mediana y p95) con el modelo elegido | pendiente |
+| 1b | Medirlo en teléfonos: el iPhone 14 propio y el Android de Diego | ms por cuadro (mediana y p95) con el modelo elegido | **iPhone hecho** (abajo); Android pendiente |
 | 2 | Motor de decisión en JS: distancia, zonas de cercanía, prioridades, **abstención (QA-3)** y alertas (`web/bili/{fusion,decision,alertas,cercania,etiquetas}.js`) | los mismos casos dan lo mismo en Python y en JS | **hecho**: 200 escenarios, 9 025 cuadros, 776 alertas (77 de "deténgase"), 0 diferencias; la prueba corre en `pytest` |
 | 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | **hecho** con ByteTrack: 0 diferencias en 9 352 cuadros; sin compensación de movimiento llega el 52 % de las detecciones en vez del 70 % |
 | 3 | App: cámara, Worker, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | pendiente |
 | 4 | Instrumentación: latencia captura → `onstart` de la voz (QA-1) y registro local de cada aviso (QA-8) | p95 < 500 ms; 100 % de avisos con los cuatro campos | pendiente |
 | 5 | Sostenido (QA-7): 30 min caminando, latencia y batería, en gama media | minuto 30 ≤ 1,2 × minuto 1; ≥ 1 h | pendiente |
 | 6 | Validación (E4): exámenes, video de otra persona, prueba en campo acompañada | regla de decisión del paper | pendiente |
+
+## Velocidad medida en el teléfono (fase 1b)
+
+`/onnx-spike` (ONNX_SPIKE=1) corre en el teléfono lo mismo que correrá la app: cámara, letterbox, modelos, decodificación, seguimiento,
+fusión, decisión y alertas (los módulos de `web/bili/`). Mide de la captura a la alerta decidida, sin la voz. 100 cuadros por ronda.
+
+iPhone 14, iOS 18.7, Safari, 15/11/2026 (tres corridas; los tiempos se repiten a ±3 ms):
+
+| Configuración | Mediana | p95 | Cuadros/s |
+|---|---|---|---|
+| v7a solo, WebGPU | 152 ms | 162 ms | 6,6 |
+| v7a + yolo26n (personas y vehículos), WebGPU | 222 ms | 230 ms | 4,5 |
+| v7a solo, WebAssembly (respaldo) | 367 ms | 590 ms | 2,7 |
+
+- Los dos modelos caben en QA-1 en este teléfono, con ~270 ms para que empiece la voz (falta medirla: fase 4).
+- Sin WebGPU no se cumple: el p95 con WebAssembly pasa de 500 ms con un solo modelo.
+- Seguimiento, fusión, decisión y alertas en JS: 0 ms.
+- Cámara: en iOS hay que pedir `width: 640, height: 480`; con el teléfono vertical llega 480 × 640. Pedir 480 × 640 da una imagen
+  horizontal que entra achicada y con bandas.
 
 ## Riesgos abiertos
 
