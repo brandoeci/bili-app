@@ -110,7 +110,19 @@ iPhone 14, iOS 18.7, Safari, 15/11/2026 (tres corridas; los tiempos se repiten a
 | v7a + yolo26n (personas y vehículos), WebGPU | 222 ms | 230 ms | 4,5 |
 | v7a solo, WebAssembly (respaldo) | 367 ms | 590 ms | 2,7 |
 
-- Los dos modelos caben en QA-1 en este teléfono, con ~270 ms para que empiece la voz (falta medirla: fase 4).
+Android de Diego (Android 10, Chrome 157, 8 núcleos; modelo de teléfono por confirmar), 15/11/2026, por el túnel:
+
+| Configuración | Mediana | p95 |
+|---|---|---|
+| v7a solo, WebGPU | 3 676 ms | 4 274 ms |
+| v7a + yolo26n, WebGPU | 4 798 ms | 5 110 ms |
+| v7a solo, WebAssembly | 16 144 ms | (2 cuadros) |
+
+Unas 20 veces más lento que el iPhone y 7 veces por encima de QA-1; hasta preparar la imagen tarda 154 ms (iPhone: 6). Falta descartar
+ahorro de batería y WebGPU por software (la página ahora muestra la GPU y un piso con yolo26n a 416 × 320). Si se confirma, en esa clase de
+teléfonos el navegador no alcanza y toca la app nativa (TFLite / ONNX Runtime con aceleración de Android), como prevé el paper.
+
+- Los dos modelos caben en QA-1 en el iPhone, con ~270 ms para que empiece la voz (falta medirla: fase 4).
 - Sin WebGPU no se cumple: el p95 con WebAssembly pasa de 500 ms con un solo modelo.
 - Seguimiento, fusión, decisión y alertas en JS: 0 ms.
 - Cámara: en iOS hay que pedir `width: 640, height: 480`; con el teléfono vertical llega 480 × 640. Pedir 480 × 640 da una imagen
