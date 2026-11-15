@@ -101,7 +101,7 @@ class FusionEngine:
                     ttc_s=None if ttc is None else round(float(ttc), 1),
                     priority=prioridad,
                     zone=zone,
-                    conducta=decidir(label, det.conf, prioridad, self.decision) if self.decidir_conducta else None,
+                    conducta=decidir(label, det.conf, prioridad, self.decision, direction=direction) if self.decidir_conducta else None,
                 )
             )
         return results

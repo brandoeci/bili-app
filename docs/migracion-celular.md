@@ -51,7 +51,10 @@ no exactitud):
 | A + B | 0,7 / 4,0 | 0,2 / 3,2 |
 
 Tal como está pediría detenerse cada ~17 s en el recorrido propio; 28 de esos 43 "deténgase" son bordillos dudosos, casi siempre a un
-lado. **Pendiente de decidir** entre A, B o A + B.
+lado. **Elegido: A + B** (15/11/2026), en `app/core/decision.py` y `web/bili/decision.js`. Costo aceptado: algo dudoso a un lado que se
+cruce no pide detenerse hasta que esté al frente o se confirme; un bordillo con confianza menor a 0,50 no se menciona.
+Medido a 8 cuadros/s con ByteTrack (mismas detecciones): recorrido propio de 7,7 con clase y 4,3 "deténgase" por minuto a 9,0 y 1,3;
+video de Diego sin cambio (10,7 y 0,7).
 
 **Corrección: a 8 cuadros/s habla más.** Con seguimiento y al ritmo de la app (`scripts/movil/seguimiento_videos.py`, 3 tramos de 60 s de
 cada video, v7a, con abstención tal como está), el recorrido propio da 8,7 avisos con clase y 6,0 "deténgase" por minuto con BoT-SORT; el
@@ -86,7 +89,7 @@ comparar contra Python).
 | Fase | Qué | Cómo se sabe que sirvió | Estado |
 |---|---|---|---|
 | 1 | Detector en el celular: letterbox, decodificación y NMS en JS (`web/bili/deteccion.js`) | mismas detecciones que Python con el mismo ONNX; mismas métricas con el relleno del celular | **hecho en el PC**: 46 de 46 detecciones idénticas en 60 cuadros reales; examen de bordillos igual con el ONNX (v7a recall 0,26) |
-| 1b | Medirlo en teléfonos: iPhone 14 Pro y un Android de gama media | ms por cuadro (mediana y p95) con el modelo elegido | pendiente |
+| 1b | Medirlo en teléfonos: el iPhone 14 propio y el Android de Diego | ms por cuadro (mediana y p95) con el modelo elegido | pendiente |
 | 2 | Motor de decisión en JS: distancia, zonas de cercanía, prioridades, **abstención (QA-3)** y alertas (`web/bili/{fusion,decision,alertas,cercania,etiquetas}.js`) | los mismos casos dan lo mismo en Python y en JS | **hecho**: 200 escenarios, 9 025 cuadros, 776 alertas (77 de "deténgase"), 0 diferencias; la prueba corre en `pytest` |
 | 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | **hecho** con ByteTrack: 0 diferencias en 9 352 cuadros; sin compensación de movimiento llega el 52 % de las detecciones en vez del 70 % |
 | 3 | App: cámara, Worker, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | pendiente |

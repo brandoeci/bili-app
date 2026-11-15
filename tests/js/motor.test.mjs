@@ -25,6 +25,13 @@ test('conductas', () => {
   assert.equal(conducta('person', 0.3, 'P0'), 'callar');
 });
 
+test('A: lo dudoso a un lado no pide detenerse; B: el bordillo no tiene banda dudosa', () => {
+  assert.equal(conducta('pothole', 0.3, 'P0', undefined, 0.35, 'left'), 'callar');
+  assert.equal(conducta('pothole', 0.8, 'P0', undefined, 0.35, 'left'), 'avisar');
+  assert.equal(conducta('curb', 0.4, 'P0'), 'callar');
+  assert.equal(conducta('curb', 0.55, 'P0'), 'avisar');
+});
+
 test('QA-3: algo dudoso y cerca al frente -> "Deténgase", sin nombrar la clase, con prioridad máxima de voz', () => {
   const [d] = new Fusion().actualizar([{ track_id: 1, label: 'pothole', conf: 0.3, bbox: [200, 400, 280, 630] }], 640, 480, 0);
   assert.equal(d.conducta, 'incertidumbre');

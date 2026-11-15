@@ -43,7 +43,7 @@ export class Fusion {
         approach_speed_mps: velocidad == null ? null : redondear(velocidad, 2),
         ttc_s: ttc == null ? null : redondear(ttc, 1),
         priority, zone: z,
-        conducta: this.decidirConducta ? decidir(label, d.conf, priority, this.decision) : null,
+        conducta: this.decidirConducta ? decidir(label, d.conf, priority, this.decision, 0.35, direction) : null,
         note: null,
       };
     });

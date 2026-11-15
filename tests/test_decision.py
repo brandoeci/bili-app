@@ -26,6 +26,22 @@ def test_la_incertidumbre_solo_se_declara_cerca_o_en_el_camino():
     assert conducta('pothole', 0.30, 'P2') == 'callar'          # dudoso y lejos: no se pide detenerse
 
 
+def test_a_lo_dudoso_a_un_lado_no_pide_detenerse():
+    assert conducta('pothole', 0.30, 'P0', direction='center') == 'incertidumbre'
+    assert conducta('pothole', 0.30, 'P0', direction='left') == 'callar'
+    assert conducta('pothole', 0.80, 'P0', direction='left') == 'avisar'   # lo seguro sí se avisa a un lado
+
+
+def test_b_el_bordillo_no_tiene_banda_dudosa():
+    assert umbrales('curb') == (0.50, 0.50)
+    assert conducta('curb', 0.40, 'P0') == 'callar' and conducta('curb', 0.55, 'P0') == 'avisar'
+
+
+def test_en_la_fusion_lo_dudoso_a_un_lado_se_calla():
+    d = FusionEngine(decidir_conducta=True).update([_cruda('pothole', 0.3, (10, 400, 90, 630))], None, (H, W, 3), now=0.0)[0]
+    assert d.direction == 'left' and d.conducta == 'callar'
+
+
 def test_las_clases_sin_tabla_no_tienen_banda_intermedia():
     assert umbrales('person') == (0.35, 0.35)
     assert conducta('person', 0.36, 'P1') == 'avisar' and conducta('person', 0.30, 'P1') == 'callar'
