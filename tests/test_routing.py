@@ -231,9 +231,11 @@ class FakeProvider:
 
     async def geocode(self, texto, cerca):
         self.calls.append('geo')
-        if isinstance(self.geo, Exception):
-            raise self.geo
-        return self.geo
+        self.cercas = [*getattr(self, 'cercas', []), cerca]
+        geo = self.geo.pop(0) if isinstance(self.geo, list) else self.geo   # una lista: una respuesta por búsqueda
+        if isinstance(geo, Exception):
+            raise geo
+        return geo
 
 
 def ruta_demo(distancia=200):
@@ -269,6 +271,30 @@ def test_endpoint_con_texto_geocodifica_y_devuelve_la_direccion(api):
     assert r.status_code == 200
     assert r.json()['destino_confirmado'] == 'Cl. 72 #10-34, Bogotá'
     assert provider.calls == ['geo', 'ruta']
+
+
+def test_sin_gps_el_origen_dicho_se_busca_y_el_destino_se_busca_cerca_de_el(api):
+    client, provider, _ = api
+    aqui = LatLng(lat=4.657, lng=-74.056)
+    provider.geo = [(aqui, 'Cl. 72 & Cra. 7, Bogotá'), (LatLng(lat=4.66, lng=-74.06), 'Museo, Bogotá')]
+    r = client.post('/v1/rutas', json={'origen_texto': 'calle 72 con séptima', 'destino_texto': 'el museo'})
+    assert r.status_code == 200
+    assert r.json()['origen_confirmado'] == 'Cl. 72 & Cra. 7, Bogotá'
+    assert provider.calls == ['geo', 'geo', 'ruta']
+    assert provider.cercas[1] == aqui   # el destino se busca alrededor de donde la persona dijo que está
+
+
+def test_origen_dicho_que_no_existe_lo_dice_claro(api):
+    client, provider, _ = api
+    provider.geo = PlaceNotFound('sin resultados')
+    r = client.post('/v1/rutas', json={'origen_texto': 'calle inventada', 'destino_texto': 'el museo'})
+    assert r.status_code == 404 and 'donde me dijo que está' in r.json()['detail']
+
+
+def test_origen_obligatorio_y_unico(api):
+    client, _, _ = api
+    assert client.post('/v1/rutas', json={'destino': DESTINO}).status_code == 422
+    assert client.post('/v1/rutas', json={'origen': ORIGEN, 'origen_texto': 'calle 72', 'destino': DESTINO}).status_code == 422
 
 
 def test_el_endpoint_no_acepta_modo(api):

@@ -53,6 +53,13 @@
     return s.length >= 3 ? s : '';
   }
 
+  /* "Estoy en la calle 72 con séptima" -> "calle 72 con séptima". Devuelve '' si no queda nada útil. */
+  function cleanOrigin(text) {
+    const s = (text || '').trim().replace(/^por favor[, ]*/i, '')
+      .replace(/^(yo\s+)?(estoy|me\s+encuentro|me\s+ubico|ando|voy)\s+(en|por)(\s+|$)/i, '').replace(/^en\s+/i, '');
+    return cleanDestination(s);
+  }
+
   /* 'repeat' | 'newdest' | 'cancel' | 'where' | 'describe' | null */
   function parseCommand(text) {
     const n = norm(text);
@@ -143,7 +150,8 @@
    *   listen(ms) -> Promise<{text}|{silence}|{interrupted}|{error}>
    *   whenQuiet() -> Promise                    resuelve cuando no hay nadie hablando
    *   beep(), interrupt()                       tono de "hable ahora" y callar lo no urgente
-   *   findRoute(destino) -> Promise<{ok, ruta, speech} | {ok:false, message}>
+   *   findRoute(destino, origenDicho?) -> Promise<{ok, ruta, speech} | {ok:false, message, needOrigin?}>
+   *                                             needOrigin: no hay ubicación del GPS; Bili pregunta dónde está y vuelve a buscar
    *   startRoute(ruta), cancelRoute(), repeat(), describe()
    *   whereText() -> Promise<string>            "Está en la Carrera 7, caminando hacia el norte. No tiene una ruta activa."
    * } */
@@ -154,7 +162,7 @@
     async function hear(ms) {
       for (let i = 0; i <= T.maxInterrupts; i++) {
         await env.whenQuiet();
-        env.beep();
+        await env.beep();   // si el tono es asíncrono, se espera a que acabe: que no lo corte ni lo oiga el reconocimiento
         const r = await env.listen(ms);
         if (!r.interrupted) return r;  // una alerta urgente cortó la escucha: se espera a que termine y se vuelve a escuchar
       }
@@ -173,6 +181,19 @@
       return 'silence';  // sin respuesta clara nunca se asume que sí
     }
 
+    /* Sin GPS: "¿En qué dirección está?". Devuelve lo que dijo la persona, o '' si no respondió nada útil. */
+    async function askOrigin(motivo) {
+      await env.say(`${motivo ? motivo + ' ' : ''}Para calcular la ruta, dígame dónde está ahora, por ejemplo: calle 72 con carrera 7. Hable después del tono.`, 'P1');
+      for (let k = 0; k < 2; k++) {
+        const r = await hear(T.askListenMs);
+        if (r.error || r.silence) return '';
+        const o = cleanOrigin(r.text);
+        if (o) return o;
+        if (k === 0) await env.say(REPETIR, 'P1');
+      }
+      return '';
+    }
+
     async function askDestination(prompt) {
       await env.say(prompt || '¿A dónde quiere ir? Hable después del tono. Si no quiere ir a ningún lugar, no diga nada.', 'P1');
       let r = await hear(T.askListenMs);
@@ -184,7 +205,12 @@
           return 'free';
         }
         const dest = cleanDestination(r.text);
-        const res = dest ? await env.findRoute(dest) : null;
+        let res = dest ? await env.findRoute(dest) : null;
+        if (res && res.needOrigin) {
+          const origen = await askOrigin(res.message);
+          if (!origen) { await env.say('Sin saber dónde está no puedo calcular la ruta. ' + TOQUE, 'P1'); return 'no-origin'; }
+          res = await env.findRoute(dest, origen);
+        }
         if (res && res.ok) {
           const c = await confirm(res.speech);
           if (c === 'yes') { navigating = true; env.startRoute(res.ruta); return 'started'; }
@@ -261,5 +287,5 @@
     };
   }
 
-  return { createDialog, createHold, parseYesNo, cleanDestination, parseCommand, parseMenu, parseFree, mensajeDeError, mensajeDeFalloDeRuta, errorDeRuta, speakable, norm, T };
+  return { createDialog, createHold, parseYesNo, cleanDestination, cleanOrigin, parseCommand, parseMenu, parseFree, mensajeDeError, mensajeDeFalloDeRuta, errorDeRuta, speakable, norm, T };
 });

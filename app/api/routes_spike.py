@@ -70,20 +70,24 @@ COOKIE = 'bili_clave'
 
 
 def _es_de_la_prueba(ruta: str) -> bool:
-    return ruta == '/onnx-spike' or (ruta.startswith('/bili/') and ruta.endswith('.js')) or (ruta.startswith('/v1/onnx/') and ruta.endswith('.onnx'))
+    return (ruta in ('/onnx-spike', '/local', '/sw.js', '/v1/voz.js', '/v1/nav.js', '/v1/voice.js', '/v1/rutas', '/v1/ubicacion')
+            or (ruta.startswith('/bili/') and ruta.endswith('.js'))
+            or (ruta.startswith('/v1/onnx/') and ruta.endswith('.onnx')))
 
 
 class SoloPruebaPorTunel:
     """Filtro para compartir la prueba por un túnel de Cloudflare sin exponer el resto del servidor.
 
     Lo que llega por Cloudflare (trae la cabecera cf-connecting-ip, que Cloudflare siempre agrega y el visitante no puede quitar) solo
-    puede ver la página de prueba, sus módulos y los dos .onnx, y solo con la clave: la primera vez en el enlace (?clave=...), que deja
+    puede ver la prueba de velocidad, Bili en el teléfono (/local, su service worker, la voz y la navegación: buscar la ruta y la calle,
+    que solo reciben coordenadas y tienen el tope diario de Google), sus módulos y los .onnx, y solo con la clave: la primera vez en el enlace (?clave=...), que deja
     una cookie; después con la cookie. Todo lo demás (la app, los WebSocket de la cámara, la descripción con Gemini) responde 404.
     Sin clave configurada, el túnel no deja pasar nada. Lo que llega por el Wi-Fi no cambia. Es ASGI puro para cubrir también WebSocket."""
 
-    def __init__(self, app, clave: str = ''):
+    def __init__(self, app, clave: str = '', siempre: bool = False):
         self.app = app
         self.clave = clave
+        self.siempre = siempre  # en la nube (app/nube.py) todo llega de internet: la clave se pide siempre, haya o no Cloudflare
 
     def _clave_valida(self, dada: str) -> bool:
         return bool(self.clave) and hmac.compare_digest(dada.encode(), self.clave.encode())
@@ -92,7 +96,7 @@ class SoloPruebaPorTunel:
         if scope['type'] not in ('http', 'websocket'):
             return await self.app(scope, receive, send)
         cabeceras = dict(scope.get('headers') or [])
-        if b'cf-connecting-ip' not in cabeceras:
+        if not self.siempre and b'cf-connecting-ip' not in cabeceras:
             return await self.app(scope, receive, send)
         ruta = scope.get('path', '')
         por_enlace = parse_qs(scope.get('query_string', b'').decode()).get('clave', [''])[0]

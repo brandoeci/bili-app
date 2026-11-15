@@ -18,25 +18,28 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   const propio = url.origin === self.location.origin;
   const grande = (propio && url.pathname.startsWith('/v1/onnx/')) || url.hostname === 'cdn.jsdelivr.net';
-  const pagina = propio && (url.pathname === '/local' || url.pathname.startsWith('/bili/') || url.pathname === '/v1/voz.js');
+  const pagina = propio && (url.pathname === '/local' || url.pathname.startsWith('/bili/')
+    || ['/v1/voz.js', '/v1/nav.js', '/v1/voice.js'].includes(url.pathname));
   if (!grande && !pagina) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     if (grande) {
       const guardado = await cache.match(e.request, { ignoreSearch: true });
       if (guardado) return guardado;
-      const r = await fetch(e.request);
-      if (r.ok) await cache.put(e.request, r.clone());
-      return r;
+      const nuevo = await fetch(e.request);
+      if (nuevo.ok) await cache.put(e.request, nuevo.clone());
+      return nuevo;
     }
+    // Con el PC apagado, el túnel no falla "sin red": Cloudflare responde una página de error (530). Eso tampoco sirve: también
+    // se usa lo guardado. Solo si no hay nada guardado se devuelve la respuesta (o el error) tal cual.
+    let r = null, fallo = null;
     try {
-      const r = await conLimite(e.request, 3000);
-      if (r.ok) await cache.put(e.request, r.clone());
-      return r;
-    } catch (err) {
-      const guardado = await cache.match(e.request, { ignoreSearch: true });
-      if (guardado) return guardado;
-      throw err;
-    }
+      r = await conLimite(e.request, 3000);
+      if (r.ok) { await cache.put(e.request, r.clone()); return r; }
+    } catch (err) { fallo = err; }
+    const guardado = await cache.match(e.request, { ignoreSearch: true });
+    if (guardado) return guardado;
+    if (r) return r;
+    throw fallo;
   })());
 });

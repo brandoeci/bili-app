@@ -13,7 +13,9 @@ class RutaRequest(BaseModel):
 
     model_config = ConfigDict(extra='forbid')
 
-    origen: LatLng
+    origen: LatLng | None = None
+    # Si el GPS no da la ubicación, la persona dice dónde está ("calle 72 con séptima") y se busca como el destino.
+    origen_texto: str | None = Field(default=None, min_length=3, max_length=200)
     destino: LatLng | None = None
     destino_texto: str | None = Field(default=None, min_length=3, max_length=200)
 
@@ -21,6 +23,8 @@ class RutaRequest(BaseModel):
     def _uno_solo(self) -> 'RutaRequest':
         if (self.destino is None) == (self.destino_texto is None):
             raise ValueError('envíe destino (lat/lng) o destino_texto, no ambos ni ninguno')
+        if (self.origen is None) == (self.origen_texto is None):
+            raise ValueError('envíe origen (lat/lng) u origen_texto, no ambos ni ninguno')
         return self
 
 
@@ -50,5 +54,6 @@ class Ruta(BaseModel):
     polilinea: str  # codificada (Google); el cliente la usa para detectar desvíos
     destino: LatLng
     destino_confirmado: str | None = None  # dirección que se encontró, para leerla en voz alta
+    origen_confirmado: str | None = None  # si la persona dijo dónde está: lo que se entendió, para que pueda corregirlo
     cruces: list[Cruce] = []  # puntos de cruce de calle cerca de la ruta (OpenStreetMap)
     cruces_consultados: bool = False  # False: no se pudo consultar; el cliente no debe asumir "no hay cruces"

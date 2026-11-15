@@ -22,6 +22,16 @@
     .oculto { display:none !important; }
     /* Toda la pantalla es un solo botón para empezar: no hay nada que buscar con el dedo. */
     #empezar { position:fixed; inset:0; height:100%; border-radius:0; z-index:10; font-size:1.7rem; padding:24px; line-height:1.3; }
+    /* Con Bili andando, toda la pantalla es el botón de hablar (destino u orden); dos dedos 2 s abren el menú. */
+    #hablar { position:fixed; inset:0; width:100%; height:100%; border-radius:0; z-index:10; display:flex; align-items:flex-end; justify-content:center;
+      padding:0 24px max(48px,env(safe-area-inset-bottom)); font-size:1.5rem; text-align:center; background:transparent; color:var(--fg);
+      touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+    #hablar.escuchando { box-shadow: inset 0 0 0 10px #32d74b; }
+    #escucha { font-size:1.6rem; font-weight:700; color:#32d74b; min-height:1.4em; }
+    #nav-estado { font-size:1.15rem; line-height:1.4; min-height:1.4em; }
+    #ayuda { position:relative; z-index:20; background:#13131a; border-radius:12px; padding:8px 12px; }
+    #ayuda summary { font-size:.95rem; color:var(--muted); }
+    #ayuda button { margin-top:10px; }
   </style>
 </head>
 <body>
@@ -32,15 +42,23 @@
   </p>
   <button id="empezar" aria-label="Bili. Toque en cualquier parte para empezar.">Bili<br>Toque en cualquier parte para empezar</button>
   <div id="vivo" class="oculto">
+    <details id="ayuda">
+      <summary>Opciones para un acompañante</summary>
+      <button id="registro" class="secundario">Descargar el registro de avisos</button>
+      <button id="detener" class="secundario">Detener Bili</button>
+    </details>
+    <div id="escucha" aria-hidden="true"></div>
     <div id="estado" role="status">Preparando…</div>
     <div id="alerta" role="alert" aria-live="assertive"></div>
+    <div id="nav-estado" aria-hidden="true"></div>
     <video id="cam" playsinline muted aria-hidden="true"></video>
     <div id="cifras" aria-hidden="true"></div>
-    <button id="registro" class="secundario">Descargar el registro de avisos</button>
-    <button id="detener" class="secundario">Detener Bili</button>
+    <button id="hablar" aria-label="Hablar. Toque en cualquier parte de la pantalla para decir un destino o una orden.">Toque en cualquier parte para hablar</button>
   </div>
 </main>
 
+<script src="/v1/nav.js"></script>
+<script src="/v1/voice.js"></script>
 <script src="/v1/voz.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
 <script type="module">
@@ -48,7 +66,8 @@
 // (abstención) -> alertas -> voz. Los módulos de /bili/ son los mismos que se prueban contra Python cuadro a cuadro.
 // QA-1: se mide de la captura del cuadro al inicio de la voz. QA-8: cada aviso queda registrado en el teléfono (clase, confianza,
 // conducta, latencia). QA-2: la página, los módulos y los modelos quedan guardados (sw.js) y funciona en modo avión.
-// QA-5: no hay ninguna petición de red mientras corre.
+// QA-5: ninguna imagen sale del teléfono. Lo único que usa la red es la navegación (como en la versión con servidor): buscar la
+// ruta y decir en qué calle está mandan coordenadas, nunca imágenes. Sin red, Bili sigue avisando obstáculos y lo dice.
 import { letterbox, decodificar, aCuadro } from '/bili/deteccion.js';
 import { Seguidor, seguir } from '/bili/seguimiento.js';
 import { Fusion } from '/bili/fusion.js';
@@ -104,16 +123,215 @@ const voz = BiliVoz.create({
   },
   now: () => performance.now(),
   vibrate: (p) => { if (navigator.vibrate) navigator.vibrate(p); },
-  interruptListen: () => {},
+  interruptListen: () => { if (escuchaActual) escuchaActual.interrupt(); },
 });
 const recientes = new Map();   // como el servidor: la misma frase no se repite antes de 6 s
-function decir(texto, prioridad) {
+function avisar(texto, prioridad) {
   const clave = texto.toLowerCase().replace(/\s+/g, ' ').trim(), ahora = performance.now();
   if (ahora - (recientes.get(clave) ?? -1e9) < 6000) return false;
   recientes.set(clave, ahora);
-  voz.speak(texto, prioridad, true);
+  voz.speak(texto, prioridad, true, null, { lane: 'deteccion' });   // un aviso nuevo del detector reemplaza a los suyos que esperaban
   return true;
 }
+const hablar = (texto, prioridad = 'P1') => voz.speak(texto, prioridad, true);
+const decir = (texto, prioridad = 'P1') => voz.sayAndWait(texto, prioridad, { lane: 'dialogo' });  // el diálogo no se interrumpe con alertas normales
+// Tono de "hable ahora": 1 000 Hz, 0,3 s, casi a todo volumen. Va como sonido (WAV en un <audio>) y no con Web Audio: en el iPhone
+// el Web Audio se calla con el interruptor de silencio y la voz no, así que el tono se perdía. Se espera a que acabe antes de
+// escuchar, para que no se corte ni lo oiga el reconocimiento.
+const TONO_S = 0.3;
+let tono = null;
+function crearTono() {
+  const sr = 22050, n = Math.round(sr * TONO_S), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const txt = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  txt(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); txt(8, 'WAVE'); txt(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); txt(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const borde = Math.min(1, i / 220, (n - i) / 220);   // subida y bajada de 10 ms: sin chasquido
+    v.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 1000 * i) / sr) * 0.95 * borde * 32767), true);
+  }
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+  a.volume = 1;
+  return a;
+}
+function desbloquearTono() {   // dentro del toque de "empezar": iOS solo deja sonar audio que se activó con un gesto
+  try {
+    tono = crearTono(); tono.muted = true;
+    tono.play().then(() => { tono.pause(); tono.currentTime = 0; tono.muted = false; }).catch(() => {});
+  } catch (_) { tono = null; }
+}
+function pitido() {
+  try { if (tono) { tono.currentTime = 0; tono.play().catch(() => {}); } } catch (_) {}
+  return pausa(TONO_S * 1000 + 80);
+}
+async function enSilencio() {   // para no escuchar el eco de la propia voz
+  const t0 = performance.now();
+  while (voz.ocupada() && performance.now() - t0 < 15000) await pausa(100);
+  await pausa(350);
+}
+
+// ---------- Escucha (reconocimiento de voz), igual que la versión con servidor: iOS corta solo a los pocos segundos y se reintenta ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let escuchaActual = null;
+function escuchar(ms) {
+  return new Promise((resolve) => {
+    if (!SR) return resolve({ error: 'unsupported' });
+    const limite = performance.now() + ms;
+    let hecho = false, rec = null, oyoVoz = false;
+    const fin = (r) => {
+      if (hecho) return; hecho = true;
+      clearTimeout(tm); escuchaActual = null;
+      try { rec && rec.abort(); } catch (_) {}
+      $('escucha').textContent = ''; $('hablar').classList.remove('escuchando');
+      resolve(r); voz.setListening(false);
+    };
+    const tm = setTimeout(() => { if (!oyoVoz) fin({ silence: true }); }, ms);
+    const empezarRec = () => {
+      if (hecho) return;
+      rec = new SR(); rec.lang = 'es-CO'; rec.interimResults = false; rec.maxAlternatives = 1; rec.continuous = false;
+      rec.onspeechstart = () => { oyoVoz = true; };
+      rec.onresult = (e) => { const t = e.results[0][0].transcript.trim(); if (t) fin({ text: t }); };
+      rec.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; fin({ error: e.error || 'error' }); };
+      rec.onend = () => { if (!hecho) { if (performance.now() < limite - 1200) empezarRec(); else fin({ silence: true }); } };
+      try { rec.start(); } catch (err) { fin({ error: String(err) }); }
+    };
+    voz.setListening(true);
+    escuchaActual = { interrupt: () => fin({ interrupted: true }) };
+    $('escucha').textContent = 'Escuchando…'; $('hablar').classList.add('escuchando');
+    empezarRec();
+  });
+}
+
+// ---------- Navegación a pie (nav.js y voice.js: los mismos de la versión con servidor) ----------
+// La ruta se pide al servidor (la clave de Google no puede vivir en el teléfono) y solo lleva coordenadas. Una vez bajada, el
+// seguimiento corre en el teléfono y no necesita red. ?sim=1 recorre la ruta con posiciones falsas para probar en casa.
+const SIM = parametros.get('sim');
+let ruta = null, guia = null, simTimer = null, dialogo = null, avisoBiliDicho = false, ultimaPos = null, vigiaPos = null;
+async function pedirRuta(cuerpo) {
+  const r = await fetch('/v1/rutas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  if (!r.ok) {
+    let detalle = 'No pude calcular la ruta ahora.';
+    try { detalle = (await r.json()).detail || detalle; } catch (_) {}
+    throw BiliVoice.errorDeRuta(r.status, detalle);
+  }
+  return r.json();
+}
+const lugar = (s) => BiliVoice.speakable((s || '').replace(/, Colombia$/, '').replace(/, Cundinamarca/, ''));
+const SIN_RED = 'Sin conexión a internet no puedo buscar rutas. Sigo avisándole de los obstáculos.';
+const esErrorDeUbicacion = (e) => (e && typeof e.PERMISSION_DENIED === 'number') || (e && e.message === 'sin-gps');
+/* Dónde está la persona: la última lectura del GPS si es reciente y buena; si no, se pide una (10 s como mucho). */
+async function origenGps() {
+  if (SIM) return { lat: 4.5981, lng: -74.0760 };   // simulación: Plaza de Bolívar
+  if (ultimaPos && ultimaPos.accuracy <= 100) return { lat: ultimaPos.lat, lng: ultimaPos.lng };
+  const p = await new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('sin-gps'));
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 });
+  });
+  return { lat: p.coords.latitude, lng: p.coords.longitude };
+}
+/* origenDicho: lo que la persona dijo cuando el GPS no dio su ubicación ("calle 72 con séptima"). */
+async function buscarRuta(texto, origenDicho) {
+  if (!navigator.onLine) return { ok: false, message: SIN_RED };
+  try {
+    let pedido;
+    if (origenDicho) pedido = { origen_texto: origenDicho, destino_texto: texto };
+    else {
+      try { pedido = { origen: await origenGps(), destino_texto: texto }; } catch (e) {
+        if (!esErrorDeUbicacion(e)) throw e;
+        const sinPermiso = typeof e.PERMISSION_DENIED === 'number' && e.code === e.PERMISSION_DENIED;
+        return { ok: false, needOrigin: true, message: sinPermiso ? 'No tengo permiso para usar la ubicación.' : 'No logro saber dónde está.' };
+      }
+    }
+    const r = await pedirRuta(pedido);
+    const [fija, ...otras] = r.advertencias;   // la advertencia fija de Bili, una vez por sesión; las del proveedor, siempre
+    const avisos = [...(avisoBiliDicho ? [] : [fija]), ...otras].join(' ');
+    avisoBiliDicho = true;
+    const larga = r.distancia_m > 3000 ? ' Es una caminata larga.' : '';
+    // Lo que se entendió del origen se dice para que la persona pueda decir "no" si quedó mal; y sin GPS no hay giros.
+    const desde = r.origen_confirmado ? `Entendí que está en ${lugar(r.origen_confirmado)}. ` : '';
+    const sinGps = origenDicho && !ultimaPos ? ' Mientras el teléfono no encuentre su ubicación, no puedo avisarle los giros.' : '';
+    return { ok: true, ruta: r, speech: `${desde}Encontré ${lugar(r.destino_confirmado || texto)}. ${r.resumen}.${larga}${sinGps} ${avisos} ¿Comienzo? Diga sí o no.` };
+  } catch (err) {
+    const msg = BiliVoice.mensajeDeFalloDeRuta(err);
+    return { ok: false, message: msg ? BiliVoice.speakable(msg) : (navigator.onLine ? undefined : SIN_RED) };
+  }
+}
+function seguirPosicion() {
+  if (SIM) { ultimaPos = { lat: 4.5981, lng: -74.0760, heading: null, speed: null, accuracy: 8 }; return; }
+  if (!navigator.geolocation || vigiaPos !== null) return;
+  vigiaPos = navigator.geolocation.watchPosition(
+    (p) => {
+      const c = p.coords;
+      ultimaPos = { lat: c.latitude, lng: c.longitude, heading: c.heading, speed: c.speed, accuracy: c.accuracy };
+      if (guia) { guia.update({ lat: c.latitude, lng: c.longitude, accuracy: c.accuracy, t: p.timestamp / 1000 }); finRuta(); }
+    },
+    () => { if (guia) hablar('Perdí la señal de ubicación.', 'P1'); },
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+}
+const finRuta = () => { if (guia && guia.finished) { pararSimulacion(); if (dialogo) dialogo.routeEnded(); } };
+async function dondeEsta() {
+  const p = ultimaPos;
+  if (!p) return 'Todavía no tengo su ubicación.';
+  let texto = 'No sé en qué calle está.';
+  if (navigator.onLine) {
+    try {
+      const r = await fetch('/v1/ubicacion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: p.lat, lng: p.lng }) });
+      const j = r.ok ? await r.json() : {};
+      const caminando = p.heading != null && !isNaN(p.heading) && p.speed > 0.7;   // parado, el GPS no sabe hacia dónde mira
+      if (j.calle) texto = `Está en ${BiliVoice.speakable(j.calle)}${caminando ? `, caminando hacia el ${BiliNav.headingWord(p.heading)}` : ''}.`;
+    } catch (_) { texto = 'No pude saber en qué calle está.'; }
+  } else texto = 'Sin conexión no puedo saber en qué calle está.';
+  return texto + (guia && ruta ? ` Faltan ${BiliNav.sayDistance(guia.remainingM)} para llegar a su destino.` : ' No tiene una ruta activa.');
+}
+async function primeraPosicion(ms) {
+  const t0 = performance.now();
+  while (!ultimaPos && performance.now() - t0 < ms) await pausa(200);
+  return !!ultimaPos;
+}
+function iniciarRuta(r) {
+  pararSimulacion();
+  ruta = r;
+  guia = new BiliNav.Navigator(r, {
+    say: (texto, prioridad) => { hablar(texto, prioridad); $('nav-estado').textContent = texto; },
+    onOffRoute: recalcular,
+  });
+  if (SIM) {
+    const vel = Number(SIM) > 1 ? Number(SIM) : 2;
+    let recorrido = 0;
+    simTimer = setInterval(() => {
+      recorrido += 1.4 * vel;
+      const p = BiliNav.positionAt(guia.path, recorrido);
+      ultimaPos = { lat: p.lat, lng: p.lng, heading: null, speed: null, accuracy: 8 };
+      guia.update({ lat: p.lat, lng: p.lng, accuracy: 8, t: Date.now() / 1000 });
+      finRuta();
+    }, 1000);
+  }
+}
+function pararSimulacion() { if (simTimer) clearInterval(simTimer); simTimer = null; }
+async function recalcular(pos) {
+  if (SIM || !ruta) return;
+  if (!navigator.onLine) { hablar('Sin conexión no puedo recalcular la ruta. Use su bastón y pida ayuda si la necesita.', 'P1'); return; }
+  try {
+    const nueva = await pedirRuta({ origen: { lat: pos.lat, lng: pos.lng }, destino: ruta.destino });
+    iniciarRuta(nueva);
+    hablar('Ruta nueva lista. ' + nueva.pasos[0].frase, 'P1');
+  } catch (_) { hablar('No pude recalcular la ruta. Use su bastón y pida ayuda si la necesita.', 'P1'); }
+}
+function cancelarRuta() { pararSimulacion(); guia = null; ruta = null; $('nav-estado').textContent = ''; }
+const entorno = {
+  say: decir,
+  busy: (b) => voz.setDialogBusy(b),
+  listen: escuchar, whenQuiet: enSilencio, beep: pitido,
+  interrupt: () => voz.interruptSoft(),
+  findRoute: buscarRuta,
+  startRoute: iniciarRuta,
+  cancelRoute: cancelarRuta,
+  shutdown: () => detener(),
+  repeat: () => hablar(voz.ultimo() || 'No hay nada que repetir.', 'P1'),
+  // La descripción con Gemini necesitaría mandar una imagen fuera del teléfono: en esta versión no está.
+  describe: () => hablar('En esta versión no puedo describir la escena. Sigo avisándole de los obstáculos.', 'P1'),
+  whereText: dondeEsta,
+};
 
 // ---------- Registro (QA-8): cada aviso con clase, confianza, conducta y latencia, guardado en el teléfono ----------
 let registro = [];
@@ -199,7 +417,7 @@ async function bucle({ sesiones, backend }) {
         prioridad: a.priority, texto: a.text, razon: a.razon, latencia_ms: null, dicho: false };
       registro.push(entrada);
       guardarRegistro();
-      if (decir(a.text, a.priority)) pendientes.push({ texto: a.text, captura, entrada });
+      if (avisar(a.text, a.priority)) pendientes.push({ texto: a.text, captura, entrada });
       const el = $('alerta'); el.textContent = a.text; el.className = a.priority === 'P0' ? 'p0' : a.priority === 'P1' ? 'p1' : '';
     }
     while (pendientes.length && performance.now() - pendientes[0].captura > 10000) pendientes.shift();   // nunca se dijo (caducó en la cola)
@@ -220,6 +438,10 @@ async function bucle({ sesiones, backend }) {
 async function empezar() {
   $('empezar').disabled = true;
   speechSynthesis.speak(new SpeechSynthesisUtterance(''));   // desbloquea la voz con el gesto
+  desbloquearTono();
+  if (SR) {   // dentro del gesto: aquí iOS pide el permiso del micrófono, antes de que la persona dependa de él
+    try { const w = new SR(); w.lang = 'es-CO'; w.start(); setTimeout(() => { try { w.abort(); } catch (_) {} }, 400); } catch (_) {}
+  }
   $('empezar').classList.add('oculto'); $('vivo').classList.remove('oculto');
   try {
     await abrirCamara();
@@ -240,15 +462,24 @@ async function empezar() {
   try { bloqueo = await navigator.wakeLock.request('screen'); } catch (_) {}
   corriendo = true;
   $('estado').textContent = 'Bili está activo.';
-  voz.speak('Bili listo.', 'P1', false);
   bucle(modelos).catch((e) => {
     corriendo = false;
     $('estado').textContent = `Bili se detuvo por un error: ${e.message || e}`;
     voz.speak('Bili se detuvo por un error. Use su bastón.', 'P0', false);
   });
+  // Como la versión con servidor: dónde está, y después pregunta a dónde quiere ir sin que haya que tocar nada.
+  seguirPosicion();
+  dialogo = BiliVoice.createDialog(entorno);
+  await decir('Bili listo.', 'P1');
+  if (await primeraPosicion(5000)) await decir(await dondeEsta(), 'P1');
+  dialogo.start();
 }
 function detener() {
   corriendo = false;
+  cancelarRuta(); if (dialogo) dialogo.routeEnded(); dialogo = null;
+  if (vigiaPos !== null) { navigator.geolocation.clearWatch(vigiaPos); vigiaPos = null; }
+  if (escuchaActual) escuchaActual.interrupt();
+  $('hablar').classList.add('oculto');
   if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
   if (bloqueo) bloqueo.release().catch(() => {});
   voz.reset();
@@ -260,6 +491,13 @@ document.addEventListener('visibilitychange', async () => {
 });
 $('empezar').addEventListener('click', empezar);
 $('detener').addEventListener('click', detener);
+// Tocar = hablar (destino u orden: "dónde estoy", "repetir", "cancelar"). Dos dedos 2 s: pitido al primer segundo, y a los 2 s
+// Bili se calla y pregunta "¿nuevo destino o apagar?".
+const sostener = BiliVoice.createHold({ onWarn: pitido, onFire: () => { if (dialogo) dialogo.onMenu(); } });
+for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+  $('hablar').addEventListener(ev, (e) => sostener.touches(e.touches.length), { passive: true });
+}
+$('hablar').addEventListener('click', () => { if (sostener.suppressClick()) return; if (dialogo) dialogo.onTap(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
 </body>

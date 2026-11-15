@@ -67,6 +67,34 @@ test('órdenes durante la ruta', () => {
   assert.equal(V.parseCommand('banana'), null);
 });
 
+test('origen dicho: se quitan "estoy en…" y se conserva el lugar', () => {
+  assert.equal(V.cleanOrigin('Estoy en la calle 72 con séptima'), 'la calle 72 con séptima');
+  assert.equal(V.cleanOrigin('me encuentro en el parque de la 93'), 'el parque de la 93');
+  assert.equal(V.cleanOrigin('carrera 7 con calle 45'), 'carrera 7 con calle 45');
+  assert.equal(V.cleanOrigin('estoy en'), '');
+});
+
+test('sin GPS: pregunta dónde está, busca con eso y sigue como siempre', async () => {
+  const pedidos = [];
+  const env = entorno([dicho('al Museo del Oro'), dicho('estoy en la calle 72 con séptima'), dicho('sí')], {
+    find: (dest) => (pedidos.length ? { ok: true, ruta: { destino: dest }, speech: 'Encontré el museo. ¿Comienzo?' } : { ok: false, needOrigin: true, message: 'No sé dónde está.' }),
+  });
+  const buscar = env.findRoute;
+  env.findRoute = async (dest, origen) => { const r = await buscar(dest); pedidos.push([dest, origen]); return r; };
+  const out = await V.createDialog(env).start();
+  assert.equal(out, 'started');
+  assert.deepEqual(pedidos, [['Museo del Oro', undefined], ['Museo del Oro', 'la calle 72 con séptima']]);
+  assert.ok(env.hablo.some((t) => t.startsWith('No sé dónde está. Para calcular la ruta, dígame dónde está ahora')));
+});
+
+test('sin GPS y sin respuesta sobre dónde está: no inventa la ruta', async () => {
+  const env = entorno([dicho('al Museo del Oro')], { find: () => ({ ok: false, needOrigin: true }) });
+  const out = await V.createDialog(env).start();
+  assert.equal(out, 'no-origin');
+  assert.equal(env.iniciada, null);
+  assert.ok(env.hablo.at(-1).startsWith('Sin saber dónde está no puedo calcular la ruta.'));
+});
+
 test('camino feliz: pregunta, busca, confirma y comienza', async () => {
   const env = entorno([dicho('quiero ir al Museo del Oro'), dicho('sí')]);
   const out = await V.createDialog(env).start();

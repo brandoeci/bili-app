@@ -16,6 +16,9 @@ from app.routing.spanish import ADVERTENCIA_BILI
 
 router = APIRouter(prefix='/v1')
 
+# Sin GPS no hay "cerca de dónde" para buscar lo que la persona dice: se busca alrededor de Bogotá.
+CENTRO_POR_DEFECTO = LatLng(lat=4.65, lng=-74.08)
+
 
 @lru_cache(maxsize=1)
 def get_provider() -> RouteProvider:
@@ -55,13 +58,22 @@ async def calcular_ruta(
     osm: CrucesLocales | None = Depends(get_cruces),
 ):
     """Ruta a pie del origen al destino. No se guarda nada: ni ubicación ni ruta."""
+    origen, origen_confirmado = req.origen, None
+    if origen is None:  # sin GPS: la persona dijo dónde está
+        try:
+            _take(cap)
+            origen, origen_confirmado = await provider.geocode(req.origen_texto or '', CENTRO_POR_DEFECTO)
+        except PlaceNotFound as exc:
+            raise HTTPException(status_code=404, detail='No encontré el lugar donde me dijo que está') from exc
+        except ProviderError as exc:
+            raise HTTPException(status_code=502, detail='No se pudo calcular la ruta ahora') from exc
     try:
         destino, confirmado = req.destino, None
         if destino is None:
             _take(cap)
-            destino, confirmado = await provider.geocode(req.destino_texto or '', req.origen)
+            destino, confirmado = await provider.geocode(req.destino_texto or '', origen)
         _take(cap)
-        ruta = await provider.walk_route(req.origen, destino)
+        ruta = await provider.walk_route(origen, destino)
     except PlaceNotFound as exc:
         raise HTTPException(status_code=404, detail='No encontré ese lugar') from exc
     except RouteNotFound as exc:
@@ -88,6 +100,7 @@ async def calcular_ruta(
     # La advertencia de Bili va siempre primero; las del proveedor (p. ej. "puede faltar andén") se conservan.
     ruta.advertencias = [ADVERTENCIA_BILI, *ruta.advertencias]
     ruta.destino_confirmado = confirmado
+    ruta.origen_confirmado = origen_confirmado
     return ruta
 
 

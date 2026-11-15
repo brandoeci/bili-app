@@ -56,6 +56,22 @@ def test_con_la_clave_del_enlace_entra_y_queda_la_cookie_para_los_modulos():
     assert c.get('/bili/seguimiento.js', headers=CF).status_code == 200   # con la cookie
 
 
+def test_con_la_clave_tambien_entra_bili_en_el_telefono():
+    app = FastAPI()
+    for ruta in ('/local', '/sw.js', '/v1/voz.js', '/v1/nav.js', '/v1/voice.js'):
+        app.add_api_route(ruta, lambda: {'ok': True})
+    for ruta in ('/v1/rutas', '/v1/ubicacion'):
+        app.add_api_route(ruta, lambda: {'ok': True}, methods=['POST'])
+    app.add_middleware(SoloPruebaPorTunel, clave='abc123')
+    c = TestClient(app, base_url='https://testserver')
+    assert c.post('/v1/rutas', headers=CF).status_code == 404   # sin clave, tampoco la navegación
+    assert c.get('/local', headers=CF).status_code == 404
+    assert c.get('/local?clave=abc123', headers=CF).status_code == 200
+    for ruta in ('/sw.js', '/v1/voz.js', '/v1/nav.js', '/v1/voice.js'):
+        assert c.get(ruta, headers=CF).status_code == 200, ruta
+    assert c.post('/v1/rutas', headers=CF).status_code == 200 and c.post('/v1/ubicacion', headers=CF).status_code == 200
+
+
 def test_ni_con_la_clave_se_llega_al_resto_del_servidor():
     c = _cliente()
     c.get('/onnx-spike?clave=abc123', headers=CF)
