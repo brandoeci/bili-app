@@ -206,6 +206,36 @@ test('un aviso normal que esperó demasiado sin empezar caduca; uno del diálogo
   assert.ok(!m.dichas.includes('Aviso normal que se queda esperando.'), 'el aviso normal caducó: ya no es actual');
 });
 
+test('detector: un aviso urgente nuevo reemplaza al urgente que esperaba; no al que ya suena', () => {
+  const m = mundo();
+  const D = { lane: 'deteccion' };
+  m.voz.speak('Cuidado: perro a su derecha, muy cerca.', 'P0', true, null, D);
+  m.voz.speak('Cuidado: gato a su derecha, muy cerca.', 'P0', true, null, D);
+  m.voz.speak('Cuidado: perro al frente, muy cerca.', 'P0', true, null, D);
+  assert.deepEqual(m.voz.pendientes, ['Cuidado: perro al frente, muy cerca.']);
+  m.acabarTodo();
+  assert.deepEqual(m.dichas, ['Cuidado: perro a su derecha, muy cerca.', 'Cuidado: perro al frente, muy cerca.']);
+});
+
+test('detector: un P1 nuevo reemplaza al P1 que esperaba, pero no a un P0', () => {
+  const m = mundo();
+  const D = { lane: 'deteccion' };
+  m.voz.speak('Mensaje en curso de larga duración total.', 'P1');
+  m.voz.speak('Cuidado: perro al frente, muy cerca.', 'P0', true, null, D);
+  m.voz.speak('Computador al frente, muy cerca.', 'P1', true, null, D);
+  m.voz.speak('Televisor al frente, muy cerca.', 'P1', true, null, D);
+  assert.deepEqual(m.voz.pendientes, ['Cuidado: perro al frente, muy cerca.', 'Televisor al frente, muy cerca.']);
+});
+
+test('detector: sus avisos no borran lo de la navegación ni el diálogo', () => {
+  const m = mundo();
+  m.voz.speak('Mensaje en curso de larga duración total.', 'P1');
+  m.voz.speak('En unos 40 metros, gire a la derecha.', 'P1');
+  m.voz.speak('¿A dónde quiere ir?', 'P1', true, null, { lane: 'dialogo' });
+  m.voz.speak('Computador al frente, muy cerca.', 'P1', true, null, { lane: 'deteccion' });
+  assert.equal(m.voz.pendientes.length, 3);
+});
+
 test('un aviso P2 nuevo reemplaza al P2 que seguía esperando', () => {
   const m = mundo();
   m.voz.speak('Mensaje en curso de larga duración total.', 'P1');

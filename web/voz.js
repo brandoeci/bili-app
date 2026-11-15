@@ -114,6 +114,12 @@
       if (!partes.length) { if (cb) cb(); return; }
       const rank = RANK[priority] ?? 3;
       const item = { texto, partes, i: 0, rank, priority, interruptible, cb, t: now(), seq: ++seq, lane: opts.lane || null };
+      if (item.lane === 'deteccion') {
+        // Lo que ve la cámara envejece rápido: un aviso nuevo del detector reemplaza a los suyos que aún no empezaron y son igual o
+        // menos urgentes. Así nunca hay más de uno esperando por nivel y la espera es a lo sumo la frase en curso (medido: con
+        // la cola sin este límite, tres avisos urgentes seguidos hicieron esperar 5 s al último).
+        descartar((i) => i.lane === 'deteccion' && i.i === 0 && i.rank >= rank);
+      }
       if (rank === 0) {
         descartar((i) => i.rank !== 0 && !esDialogo(i) && i.i === 0);   // alertas normales viejas ya no valen; el diálogo se conserva
         if (env.vibrate) env.vibrate([200, 80, 200]);

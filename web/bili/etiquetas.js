@@ -9,6 +9,16 @@ export const LABELS_ES = {
   'refrigerator': 'nevera', 'skateboard': 'patineta', 'obstacle': 'obstáculo', 'drop': 'desnivel hacia abajo', 'stairs': 'escaleras',
   'stairs_up': 'escaleras que suben', 'stairs_down': 'escaleras que bajan', 'step_up': 'escalón hacia arriba', 'wall': 'pared',
   'door': 'puerta', 'pothole': 'hueco', 'manhole': 'tapa de alcantarilla', 'curb': 'bordillo', 'pole': 'poste',
+  'airplane': 'avión', 'train': 'tren', 'boat': 'bote', 'bird': 'pájaro', 'sheep': 'oveja', 'cow': 'vaca',
+  'elephant': 'elefante', 'bear': 'oso', 'zebra': 'cebra', 'giraffe': 'jirafa', 'handbag': 'bolso', 'tie': 'corbata',
+  'frisbee': 'frisbi', 'skis': 'esquís', 'snowboard': 'tabla de nieve', 'sports ball': 'balón', 'kite': 'cometa',
+  'baseball bat': 'bate', 'baseball glove': 'guante de béisbol', 'surfboard': 'tabla de surf', 'tennis racket': 'raqueta',
+  'wine glass': 'copa', 'cup': 'taza', 'fork': 'tenedor', 'knife': 'cuchillo', 'spoon': 'cuchara', 'bowl': 'tazón',
+  'banana': 'banano', 'apple': 'manzana', 'sandwich': 'sándwich', 'orange': 'naranja', 'broccoli': 'brócoli',
+  'carrot': 'zanahoria', 'hot dog': 'perro caliente', 'pizza': 'pizza', 'donut': 'dona', 'cake': 'torta', 'mouse': 'mouse',
+  'remote': 'control remoto', 'keyboard': 'teclado', 'microwave': 'microondas', 'oven': 'horno', 'toaster': 'tostadora',
+  'book': 'libro', 'clock': 'reloj', 'vase': 'florero', 'scissors': 'tijeras', 'teddy bear': 'peluche',
+  'hair drier': 'secador', 'toothbrush': 'cepillo de dientes',
 };
 
 export const REAL_HEIGHT_M = {
@@ -16,6 +26,9 @@ export const REAL_HEIGHT_M = {
   'bed': 0.6, 'dining table': 0.75, 'potted plant': 0.6, 'dog': 0.5, 'cat': 0.3, 'horse': 1.6, 'traffic light': 0.9, 'stop sign': 0.75,
   'fire hydrant': 0.7, 'suitcase': 0.6, 'backpack': 0.45, 'door': 2.0, 'tv': 0.5, 'refrigerator': 1.7, 'umbrella': 0.9, 'skateboard': 0.12,
   'laptop': 0.28, 'cell phone': 0.15, 'bottle': 0.25, 'parking meter': 1.3, 'toilet': 0.7, 'sink': 0.3,
+  'mouse': 0.05, 'keyboard': 0.12, 'remote': 0.15, 'cup': 0.1, 'wine glass': 0.2, 'bowl': 0.08, 'book': 0.22,
+  'clock': 0.3, 'vase': 0.3, 'scissors': 0.18, 'teddy bear': 0.35, 'handbag': 0.3, 'sports ball': 0.22,
+  'microwave': 0.3, 'toaster': 0.2, 'oven': 0.9, 'bird': 0.2, 'sheep': 0.9, 'cow': 1.4, 'train': 3.5,
 };
 
 export const REAL_WIDTH_M = {
