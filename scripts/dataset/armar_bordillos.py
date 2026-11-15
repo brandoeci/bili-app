@@ -66,6 +66,7 @@ def main() -> None:
     ap.add_argument('--dino', type=Path, required=True)
     ap.add_argument('--modelo', type=Path, required=True)
     ap.add_argument('--repetir', type=int, default=8)
+    ap.add_argument('--prefijo', default='bordillo', help='nombre de las imágenes nuevas; otro en cada ronda, o pisaría las de la base')
     a = ap.parse_args()
     if a.out.exists():
         sys.exit('La salida ya existe: no la piso. Bórrela a mano si quiere rehacerla.')
@@ -112,12 +113,14 @@ def main() -> None:
         tipo = 'pos' if lineas else 'neg'
         datos = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 95])[1]
         for k in range(a.repetir):
-            nombre = f'bordillo-{tipo}-{i:03d}-r{k}'
+            nombre = f'{a.prefijo}-{tipo}-{i:03d}-r{k}'
             destino = a.out / 'images' / 'train' / f'{nombre}.jpg'
+            if destino.exists():   # estaría escribiendo sobre un enlace a la base: la dañaría
+                sys.exit(f'{destino.name} ya existe en la base: use otro --prefijo')
             if k == 0:
                 datos.tofile(str(destino))
             else:
-                enlazar(a.out / 'images' / 'train' / f'bordillo-{tipo}-{i:03d}-r0.jpg', destino)
+                enlazar(a.out / 'images' / 'train' / f'{a.prefijo}-{tipo}-{i:03d}-r0.jpg', destino)
             (a.out / 'labels' / 'train' / f'{nombre}.txt').write_text('\n'.join(lineas) + ('\n' if lineas else ''), encoding='utf-8')
         cuenta[tipo] += 1
         cuenta['cajas de bordillo'] += len(lineas)
