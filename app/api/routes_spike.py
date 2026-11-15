@@ -34,6 +34,19 @@ def pagina_de_prueba():
     return FileResponse(settings.web_dir / 'onnx-spike.html', media_type='text/html', headers=AISLADO)
 
 
+@router.get('/local', include_in_schema=False)
+def bili_en_el_telefono():
+    """Bili completo en el teléfono (fase 3): nada de imágenes al servidor; este solo entrega la página y los modelos una vez."""
+    return FileResponse(settings.web_dir / 'local.html', media_type='text/html', headers=AISLADO)
+
+
+@router.get('/sw.js', include_in_schema=False)
+def service_worker():
+    """Guarda /local, sus módulos y los modelos en el teléfono para usarlo sin red (QA-2)."""
+    return FileResponse(settings.web_dir / 'sw.js', media_type='application/javascript',
+                        headers={**AISLADO, 'Service-Worker-Allowed': '/'})
+
+
 @router.get('/bili/{nombre}.js', include_in_schema=False)
 def modulo_del_celular(nombre: str):
     """Los módulos de web/bili/ (detector, seguimiento, motor de decisión) que la página importa."""
