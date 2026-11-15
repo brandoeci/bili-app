@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import datetime
 import ipaddress
+import os
 import socket
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CERT_DIR = ROOT / 'data' / 'certs'
-PORT = 8443
+PORT = int(os.environ.get('BILI_PORT', '8443'))  # otro puerto para correr una segunda copia sin parar la primera
 
 
 def local_ips() -> list[str]:

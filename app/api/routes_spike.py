@@ -13,9 +13,10 @@ from app.config import settings
 
 router = APIRouter()
 
-MODELOS = {'yolo26n', 'yolo26s', 'bili-hazards'}
+MODELOS = {'yolo26n', 'yolo26s', 'bili-hazards', 'bili-hazards-v6b', 'bili-hazards-v7a'}
 FORMAS = {'640x480', '416x320'}  # alto x ancho de la entrada, vertical como la cámara del teléfono
 PERMITIDOS = MODELOS | {f'{m}_{f}' for m in MODELOS for f in FORMAS}
+MODULOS = {'deteccion', 'seguimiento', 'fusion', 'alertas', 'decision', 'cercania', 'etiquetas'}  # web/bili/
 
 # Con estas dos cabeceras el navegador permite hilos en WebAssembly (SharedArrayBuffer), que aceleran el modelo.
 AISLADO = {
@@ -28,6 +29,15 @@ AISLADO = {
 @router.get('/onnx-spike', include_in_schema=False)
 def pagina_de_prueba():
     return FileResponse(settings.web_dir / 'onnx-spike.html', media_type='text/html', headers=AISLADO)
+
+
+@router.get('/bili/{nombre}.js', include_in_schema=False)
+def modulo_del_celular(nombre: str):
+    """Los módulos de web/bili/ (detector, seguimiento, motor de decisión) que la página importa."""
+    if nombre not in MODULOS:
+        raise HTTPException(status_code=404, detail='No existe')
+    return FileResponse(settings.web_dir / 'bili' / f'{nombre}.js', media_type='application/javascript',
+                        headers={**AISLADO, 'Cross-Origin-Resource-Policy': 'same-origin'})
 
 
 @router.get('/v1/onnx/{nombre}.onnx', include_in_schema=False)
