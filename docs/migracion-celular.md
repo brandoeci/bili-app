@@ -118,9 +118,15 @@ Android de Diego (Android 10, Chrome 157, 8 núcleos; modelo de teléfono por co
 | v7a + yolo26n, WebGPU | 4 798 ms | 5 110 ms |
 | v7a solo, WebAssembly | 16 144 ms | (2 cuadros) |
 
-Unas 20 veces más lento que el iPhone y 7 veces por encima de QA-1; hasta preparar la imagen tarda 154 ms (iPhone: 6). Falta descartar
-ahorro de batería y WebGPU por software (la página ahora muestra la GPU y un piso con yolo26n a 416 × 320). Si se confirma, en esa clase de
-teléfonos el navegador no alcanza y toca la app nativa (TFLite / ONNX Runtime con aceleración de Android), como prevé el paper.
+Unas 20 veces más lento que el iPhone y 7 veces por encima de QA-1; hasta preparar la imagen tarda 154 ms (iPhone: 6).
+
+Segunda corrida, sin ahorro de batería: GPU **ARM Mali (arquitectura Bifrost), real, no por software**; descarga de 38 MB en 4 s (la red no
+era el problema). **Piso** (yolo26n a 416 × 320, solo el modelo): WebGPU 654 ms de mediana y 2 672 ms de p95; WebAssembly 2 399 ms.
+v7a solo con WebGPU 4 255 ms; con yolo26n 6 256 ms.
+
+**Conclusión:** en esta clase de teléfono el navegador no cumple QA-1 ni con el modelo más chico. Como prevé el paper, el camino es una app
+nativa de Android (TensorFlow Lite u ONNX Runtime con la GPU o el acelerador del teléfono) y, probablemente, un modelo de peligros tipo
+"n" con entrada más chica. Falta el nombre exacto del teléfono para saber si es la "gama media" de QA-7.
 
 - Los dos modelos caben en QA-1 en el iPhone, con ~270 ms para que empiece la voz (falta medirla: fase 4).
 - Sin WebGPU no se cumple: el p95 con WebAssembly pasa de 500 ms con un solo modelo.
