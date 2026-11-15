@@ -20,8 +20,9 @@
 <video id="v" playsinline muted autoplay></video>
 <div>
   <button id="go">Empezar prueba</button>
-  <button id="copiar" disabled>Copiar resultados</button>
+  <button id="copiar">Copiar resultados</button>
 </div>
+<p id="estado" style="font-size:18px;color:#8cf"></p>
 <pre id="out">Listo. Toque "Empezar prueba" y permita la cámara.</pre>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.all.min.js"></script>
@@ -33,6 +34,8 @@ import { Alertas } from '/bili/alertas.js';
 import { confianzaMinima } from '/bili/decision.js';
 
 const H = 640, W = 480, CALENTAR = 5, CUADROS = 100;
+const CUADROS_WASM = 30, MAX_SEGUNDOS_RONDA = 60;   // en un teléfono lento WebAssembly puede tardar más de 1 s por cuadro
+const estado = document.getElementById('estado');
 const PELIGROS = ['pothole', 'manhole', 'curb', 'stairs', 'pole', 'obstacle'];
 const COCO = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
   'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
@@ -86,7 +89,13 @@ async function ronda(video, ronda, sesiones, backend) {
   const t = { preparar: [], modelos: [], decodificar: [], motor: [], total: [] };
   let detecciones = 0, avisos = 0;
   const inicio = performance.now();
-  for (let i = 0; i < CALENTAR + CUADROS; i++) {
+  const meta = backend === 'wasm' ? CUADROS_WASM : CUADROS;
+  for (let i = 0; i < CALENTAR + meta; i++) {
+    estado.textContent = `Midiendo ${ronda.nombre} con ${backend}: cuadro ${i + 1} de ${CALENTAR + meta}…`;
+    if (i > CALENTAR && performance.now() - inicio > MAX_SEGUNDOS_RONDA * 1000) {
+      log(`  (ronda cortada a los ${MAX_SEGUNDOS_RONDA} s, con ${i - CALENTAR} cuadros medidos)`);
+      break;
+    }
     const a = performance.now();
     const { tensor, lb } = preparar(video);
     const b = performance.now();
@@ -118,7 +127,7 @@ async function ronda(video, ronda, sesiones, backend) {
   log(`\n[${ronda.nombre} | ${backend}]`);
   for (const k of ['preparar', 'modelos', 'decodificar', 'motor']) log(`  ${k.padEnd(12)}: ${ms(mediana(t[k]))}   p95 ${ms(p95(t[k]))}`);
   log(`  TOTAL       : ${ms(mediana(t.total))}   p95 ${ms(p95(t.total))}   (~${(1000 / mediana(t.total)).toFixed(1)} cuadros/s)`);
-  log(`  detecciones por cuadro ${(detecciones / CUADROS).toFixed(1)}, avisos ${avisos} en ${seg.toFixed(0)} s`);
+  log(`  detecciones por cuadro ${(detecciones / t.total.length).toFixed(1)}, avisos ${avisos} en ${seg.toFixed(0)} s (${t.total.length} cuadros)`);
   return { nombre: ronda.nombre, backend, mediana: mediana(t.total), p95: p95(t.total) };
 }
 
@@ -161,6 +170,7 @@ document.getElementById('go').addEventListener('click', async (ev) => {
     try {
       for (const [m, cfg] of Object.entries(MODELOS)) {
         const t0 = performance.now();
+        estado.textContent = `Descargando y preparando el modelo ${cfg.archivo} (${backend})… puede tardar con datos móviles`;
         sesiones[m] = await ort.InferenceSession.create(`/v1/onnx/${cfg.archivo}.onnx`, { executionProviders: [backend], graphOptimizationLevel: 'all' });
         log(`\nModelo ${cfg.archivo} cargado con ${backend} en ${ms(performance.now() - t0)}`);
       }
@@ -178,6 +188,7 @@ document.getElementById('go').addEventListener('click', async (ev) => {
   log('\n===== RESUMEN (captura -> alerta decidida, sin la voz) =====');
   for (const r of resumen) log(`  ${r.nombre} | ${r.backend}: mediana ${ms(r.mediana)}, p95 ${ms(r.p95)}`);
   log('Meta del paper (QA-1): captura -> voz < 500 ms en el 95 %.');
+  estado.textContent = 'Terminó. Toque "Copiar resultados".';
   video.srcObject.getTracks().forEach((t) => t.stop());
   boton.disabled = false;
   document.getElementById('copiar').disabled = false;
