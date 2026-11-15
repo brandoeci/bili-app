@@ -485,6 +485,10 @@ if settings.onnx_spike:
     from app.api.routes_spike import router as spike_router
 
     app.include_router(spike_router)
+# Siempre activo: lo que llegue por un túnel de Cloudflare solo ve la página de prueba, con clave; sin la prueba activa, nada.
+from app.api.routes_spike import SoloPruebaPorTunel  # noqa: E402
+
+app.add_middleware(SoloPruebaPorTunel, clave=settings.onnx_spike_clave if settings.onnx_spike else '')
 
 
 if __name__ == '__main__':

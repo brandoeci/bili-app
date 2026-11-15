@@ -115,6 +115,8 @@ class Settings(BaseSettings):
 
     # Solo desarrollo: sirve la página que mide YOLO (ONNX) en el teléfono y los .onnx. Entrega el modelo propio: no activar en público.
     onnx_spike: bool = False
+    # Clave para compartir esa página por un túnel de Cloudflare (app/api/routes_spike.py, SoloPruebaPorTunel). Vacía: el túnel no deja pasar nada.
+    onnx_spike_clave: str = ''
 
     base_dir: Path = Path(__file__).resolve().parent.parent
 
