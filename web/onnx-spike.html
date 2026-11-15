@@ -165,14 +165,28 @@ document.getElementById('go').addEventListener('click', async (ev) => {
 
   const backends = 'gpu' in navigator ? ['webgpu', 'wasm'] : ['wasm'];
   const resumen = [];
+  // Se descargan una sola vez y se reutilizan en las dos rondas (el servidor pide no guardarlos en caché).
+  const bytes = {};
+  for (const [m, cfg] of Object.entries(MODELOS)) {
+    const t0 = performance.now();
+    estado.textContent = `Descargando ${cfg.archivo}… con datos móviles puede tardar un par de minutos`;
+    try {
+      bytes[m] = new Uint8Array(await (await fetch(`/v1/onnx/${cfg.archivo}.onnx`)).arrayBuffer());
+    } catch (e) {
+      log(`No se pudo descargar ${cfg.archivo}: ${e.message || e}`);
+      boton.disabled = false;
+      return;
+    }
+    log(`Descarga de ${cfg.archivo}: ${(bytes[m].length / 1e6).toFixed(0)} MB en ${ms(performance.now() - t0)}`);
+  }
   for (const backend of backends) {
     const sesiones = {};
     try {
       for (const [m, cfg] of Object.entries(MODELOS)) {
         const t0 = performance.now();
-        estado.textContent = `Descargando y preparando el modelo ${cfg.archivo} (${backend})… puede tardar con datos móviles`;
-        sesiones[m] = await ort.InferenceSession.create(`/v1/onnx/${cfg.archivo}.onnx`, { executionProviders: [backend], graphOptimizationLevel: 'all' });
-        log(`\nModelo ${cfg.archivo} cargado con ${backend} en ${ms(performance.now() - t0)}`);
+        estado.textContent = `Preparando el modelo ${cfg.archivo} en el teléfono (${backend})…`;
+        sesiones[m] = await ort.InferenceSession.create(bytes[m], { executionProviders: [backend], graphOptimizationLevel: 'all' });
+        log(`\nModelo ${cfg.archivo} preparado con ${backend} en ${ms(performance.now() - t0)} (sin contar la descarga)`);
       }
     } catch (e) {
       log(`\n${backend}: NO CARGÓ (${e.message || e})`);
