@@ -27,3 +27,12 @@ def test_motor_de_decision_igual_en_python_y_en_javascript(tmp_path):
     r = subprocess.run([NODE, str(RAIZ / 'scripts' / 'movil' / 'paridad_motor.mjs'), str(casos)], capture_output=True, text=True, cwd=RAIZ)
     assert r.returncode == 0, r.stdout[-3000:]
     assert 'diferencias 0' in r.stdout
+
+
+def test_seguimiento_igual_en_ultralytics_y_en_javascript(tmp_path):
+    casos = tmp_path / 'seguimiento.json'
+    subprocess.run([sys.executable, str(RAIZ / 'scripts' / 'movil' / 'paridad_seguimiento.py'), '--salida', str(casos), '--escenarios', '30'],
+                   check=True, capture_output=True, cwd=RAIZ)
+    r = subprocess.run([NODE, str(RAIZ / 'scripts' / 'movil' / 'paridad_seguimiento.mjs'), str(casos)], capture_output=True, text=True, cwd=RAIZ)
+    assert r.returncode == 0, r.stdout[-3000:]
+    assert 'diferencias 0' in r.stdout

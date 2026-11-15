@@ -54,6 +54,7 @@ class VisionContext:
             iou=self.settings.detector_iou,
             classes=self.settings.detector_classes,
             device=self.settings.detector_device,
+            tracker=self.settings.detector_tracker,
         )
         hazard_path = self.settings.base_dir / self.settings.hazard_model
         abstencion = self.settings.decision_abstencion
@@ -66,6 +67,7 @@ class VisionContext:
             device=self.settings.detector_device,
             id_offset=100_000,
             class_conf={} if abstencion else self.settings.hazard_class_conf,
+            tracker=self.settings.detector_tracker,
         ) if hazard_path.exists() else None
         self.depth = DepthModel(enabled=self.settings.depth_enabled, model_id=self.settings.depth_model, input_px=self.settings.depth_input_px)
         self._calibration_file = self.settings.base_dir / 'data' / 'calibration.json'

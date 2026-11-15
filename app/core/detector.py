@@ -22,8 +22,10 @@ class YoloDetector:
         device: str | None = None,
         id_offset: int = 0,
         class_conf: dict[str, float] | None = None,
+        tracker: str = 'botsort.yaml',
     ):
         self.conf = conf
+        self.tracker = tracker
         # Umbrales por clase, más estrictos que `conf` (p. ej. escaleras: en calles de Bogotá la mitad de las alarmas a 0.35 eran falsas).
         # Solo pueden subir el umbral: el modelo ya descarta todo lo que esté por debajo de `conf`.
         self.class_conf = {k.lower(): float(v) for k, v in (class_conf or {}).items()}
@@ -81,6 +83,7 @@ class YoloDetector:
             conf=self.conf,
             iou=self.iou,
             persist=True,
+            tracker=self.tracker,
             device=self.device,
             verbose=False,
         )

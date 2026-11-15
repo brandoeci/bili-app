@@ -53,6 +53,34 @@ no exactitud):
 Tal como está pediría detenerse cada ~17 s en el recorrido propio; 28 de esos 43 "deténgase" son bordillos dudosos, casi siempre a un
 lado. **Pendiente de decidir** entre A, B o A + B.
 
+**Corrección: a 8 cuadros/s habla más.** Con seguimiento y al ritmo de la app (`scripts/movil/seguimiento_videos.py`, 3 tramos de 60 s de
+cada video, v7a, con abstención tal como está), el recorrido propio da 8,7 avisos con clase y 6,0 "deténgase" por minuto con BoT-SORT; el
+de Diego, 11,7 y 0,3. La tabla de arriba (1 cuadro/s) subestima la carga; sirve para comparar variantes, no como cifra final.
+
+## Seguimiento en el celular (fase 2b)
+
+`web/bili/seguimiento.js` copia ByteTrack de Ultralytics paso a paso (filtro de Kalman, asociación en dos etapas, pistas sin confirmar,
+olvido a los 30 cuadros y sus rarezas). Con las mismas detecciones da los mismos IDs, la misma caja entera y la misma confianza:
+`scripts/movil/paridad_seguimiento.*`, 80 escenarios sintéticos (6 472 cuadros) y 6 tramos reales (2 880 cuadros), **0 diferencias**; la
+prueba detecta cambiar el umbral de emparejamiento de 0,80 a 0,79 (289 cuadros distintos) y el olvido de 30 a 29 cuadros.
+
+El servidor usa BoT-SORT, que además compensa el movimiento de la cámara con flujo óptico de OpenCV; eso no se copió. Lo que se pierde,
+con las mismas detecciones (8 cuadros/s):
+
+| | Recorrido propio | Video de Diego |
+|---|---|---|
+| Detecciones que llegan al motor, BoT-SORT | 70 % | 68 % |
+| Ídem, ByteTrack (celular) | 52 % | 48 % |
+| Ídem, BoT-SORT sin compensación | 52 % | 49 % |
+| Avisos con clase / "deténgase" por min, BoT-SORT | 8,7 / 6,0 | 11,7 / 0,3 |
+| Ídem, ByteTrack | 7,7 / 4,3 | 10,7 / 0,7 |
+
+Toda la diferencia es la compensación de movimiento (sin ella BoT-SORT da lo mismo que ByteTrack). Lo que el seguidor esconde son sobre
+todo parpadeos: dejarlos pasar sin ID sube los "deténgase" a 16,3 por minuto. Sin etiquetas no se sabe si los avisos que se pierden con
+ByteTrack eran reales. El servidor sigue con BoT-SORT (`DETECTOR_TRACKER`, por defecto `botsort.yaml`). Opciones si hace falta la
+compensación en el celular: OpenCV.js (~8 MB, costo por cuadro sin medir) o el giroscopio del teléfono (casi gratis, pero no se puede
+comparar contra Python).
+
 ## Fases
 
 | Fase | Qué | Cómo se sabe que sirvió | Estado |
@@ -60,7 +88,7 @@ lado. **Pendiente de decidir** entre A, B o A + B.
 | 1 | Detector en el celular: letterbox, decodificación y NMS en JS (`web/bili/deteccion.js`) | mismas detecciones que Python con el mismo ONNX; mismas métricas con el relleno del celular | **hecho en el PC**: 46 de 46 detecciones idénticas en 60 cuadros reales; examen de bordillos igual con el ONNX (v7a recall 0,26) |
 | 1b | Medirlo en teléfonos: iPhone 14 Pro y un Android de gama media | ms por cuadro (mediana y p95) con el modelo elegido | pendiente |
 | 2 | Motor de decisión en JS: distancia, zonas de cercanía, prioridades, **abstención (QA-3)** y alertas (`web/bili/{fusion,decision,alertas,cercania,etiquetas}.js`) | los mismos casos dan lo mismo en Python y en JS | **hecho**: 200 escenarios, 9 025 cuadros, 776 alertas (77 de "deténgase"), 0 diferencias; la prueba corre en `pytest` |
-| 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | pendiente |
+| 2b | Seguimiento (IDs entre cuadros) en JS: en el servidor lo da Ultralytics (`model.track`); en el celular no existe | IDs estables en los videos, comparados con Python | **hecho** con ByteTrack: 0 diferencias en 9 352 cuadros; sin compensación de movimiento llega el 52 % de las detecciones en vez del 70 % |
 | 3 | App: cámara, Worker, voz, pantalla encendida, modelo en caché para uso sin red (QA-2, QA-5) | funciona en modo avión; ningún cuadro sale del teléfono | pendiente |
 | 4 | Instrumentación: latencia captura → `onstart` de la voz (QA-1) y registro local de cada aviso (QA-8) | p95 < 500 ms; 100 % de avisos con los cuatro campos | pendiente |
 | 5 | Sostenido (QA-7): 30 min caminando, latencia y batería, en gama media | minuto 30 ≤ 1,2 × minuto 1; ≥ 1 h | pendiente |
@@ -83,4 +111,6 @@ lado. **Pendiente de decidir** entre A, B o A + B.
 node --test tests/js/deteccion.test.mjs
 python -I scripts/movil/paridad_deteccion.py --modelo models/onnx/bili-hazards-v6b_640x480.onnx --salida CARPETA --cuadros a.jpg b.jpg ...
 node scripts/movil/paridad_deteccion.mjs CARPETA      # sale con código 0 solo si todo coincide
+python -I scripts/movil/paridad_seguimiento.py --salida seg.json [--detecciones dets.json]
+node scripts/movil/paridad_seguimiento.mjs seg.json
 ```

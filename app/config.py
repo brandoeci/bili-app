@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     detector_iou: float = 0.5
     detector_device: str | None = None  # None: mps si existe, si no ultralytics decide
     detector_classes: list[str] | None = None
+    # Seguidor de Ultralytics para los IDs entre cuadros (los dos detectores).
+    detector_tracker: str = 'botsort.yaml'
     # Segundo detector, entrenado por nosotros (scripts/dataset/train.py). Si el archivo no existe, se omite.
     hazard_model: str = 'models/bili-hazards.pt'
     hazard_conf: float = 0.35
