@@ -182,6 +182,10 @@ queda como trabajo futuro.
   solo modelo que incluya persona y vehículos (hay que reentrenar) o un modelo COCO tipo "n" (140 ms los dos en el iPhone).
 - **Regla de decisión del paper:** exige exhaustividad ≥ 0,80 en obstáculos críticos. Hoy ningún modelo la cumple en la vista del
   celular (bordillo 0,26 en el examen propio; escaleras alrededor de 0,6). Eso no lo resuelve la migración: es trabajo de datos.
+- **Ronda v7b descartada (16/11/2026).** v7a + 600 cuadros `bordillo2-*` de la revisión propia. Prueba general plana (mAP50 0,649
+  vs 0,653). Examen del celular: bordillos 49 → 52 de 189 (precisión 0,79 → 0,73), postes igual (155 de 189), escaleras v4-128
+  21 → 13 de 35. El teléfono y la nube siguen con el v7a. Para subir el bordillo hacen falta bordillos dibujados (del orden de los
+  182 del v7a), no 30; y toda ronda nueva se pasa por el examen de escaleras antes de desplegarla.
 - **Voz sin red:** en Android las voces de `speechSynthesis` dependen del motor del sistema; hay que comprobar que la voz en español
   esté descargada para uso sin conexión.
 - **Licencia AGPL-3.0** de los pesos derivados de Ultralytics: los pesos quedan en el teléfono de quien use la app.
