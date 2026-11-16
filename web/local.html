@@ -252,6 +252,7 @@ async function buscarRuta(texto, origenDicho) {
     const sinGps = origenDicho && !ultimaPos ? ' Mientras el teléfono no encuentre su ubicación, no puedo avisarle los giros.' : '';
     return { ok: true, ruta: r, speech: `${desde}Encontré ${lugar(r.destino_confirmado || texto)}. ${r.resumen}.${larga}${sinGps} ${avisos} ¿Comienzo? Diga sí o no.` };
   } catch (err) {
+    if (esFalloDeRed(err)) { avisoDeRed(false); return { ok: false, message: SIN_RED }; }
     const msg = BiliVoice.mensajeDeFalloDeRuta(err);
     return { ok: false, message: msg ? BiliVoice.speakable(msg) : (navigator.onLine ? undefined : SIN_RED) };
   }
@@ -315,7 +316,10 @@ async function recalcular(pos) {
     const nueva = await pedirRuta({ origen: { lat: pos.lat, lng: pos.lng }, destino: ruta.destino });
     iniciarRuta(nueva);
     hablar('Ruta nueva lista. ' + nueva.pasos[0].frase, 'P1');
-  } catch (_) { hablar('No pude recalcular la ruta. Use su bastón y pida ayuda si la necesita.', 'P1'); }
+  } catch (e) {
+    if (esFalloDeRed(e)) avisoDeRed(false);
+    else hablar('No pude recalcular la ruta. Use su bastón y pida ayuda si la necesita.', 'P1');
+  }
 }
 function cancelarRuta() { pararSimulacion(); guia = null; ruta = null; $('nav-estado').textContent = ''; }
 const entorno = {
@@ -331,7 +335,49 @@ const entorno = {
   // La descripción con Gemini necesitaría mandar una imagen fuera del teléfono: en esta versión no está.
   describe: () => hablar('En esta versión no puedo describir la escena. Sigo avisándole de los obstáculos.', 'P1'),
   whereText: dondeEsta,
+  reportWrong: marcarUltimoAviso,
 };
+
+// ---------- QA-8: "ese aviso estuvo mal" marca el último aviso dicho; la tasa de avisos errados sale del registro ----------
+function marcarUltimoAviso() {
+  for (let i = registro.length - 1; i >= 0; i--) {
+    const e = registro[i];
+    if (e.clase && e.dicho) {
+      e.reportado_errado = true;
+      e.reportado_en = new Date().toISOString();
+      guardarRegistro();
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------- QA-2: al perderse la red, se dice UNA vez (y se mide cuánto tardó en decirse: meta < 5 s); al volver, también ----------
+let sinRedAvisado = false;
+function avisoDeRed(enLinea) {
+  if (!corriendo) return;
+  const hora = new Date().toISOString();
+  if (!enLinea && !sinRedAvisado) {
+    sinRedAvisado = true;
+    const texto = guia
+      ? 'Perdí la conexión a internet. Sigo avisándole de los obstáculos y la ruta sigue, pero no puedo recalcularla ni buscar otra.'
+      : 'Perdí la conexión a internet. Sigo avisándole de los obstáculos, pero no puedo buscar rutas.';
+    const entrada = { hora, evento: 'sin_red', texto, latencia_ms: null, dicho: false };
+    registro.push(entrada);
+    guardarRegistro();
+    pendientes.push({ texto, captura: performance.now(), entrada });   // onstart de la voz llena latencia_ms
+    hablar(texto, 'P1');
+  } else if (enLinea && sinRedAvisado) {
+    sinRedAvisado = false;
+    registro.push({ hora, evento: 'con_red' });
+    guardarRegistro();
+    hablar('Volvió la conexión a internet.', 'P2');
+  }
+}
+window.addEventListener('offline', () => avisoDeRed(false));
+window.addEventListener('online', () => avisoDeRed(true));
+// En datos móviles el teléfono a veces sigue "conectado" sin red de verdad: un fallo de red al pedir ruta o calle también cuenta.
+const esFalloDeRed = (e) => e instanceof TypeError;
 
 // ---------- Registro (QA-8): cada aviso con clase, confianza, conducta y latencia, guardado en el teléfono ----------
 let registro = [];
@@ -429,7 +475,8 @@ async function bucle({ sesiones, backend }) {
       cuadros = 0; t0 = performance.now();
       $('cifras').textContent = `${backend} · ${fps.toFixed(1)} cuadros/s · cuadro ${Math.round(mediana(tiempos))} ms (p95 ${Math.round(p95(tiempos))})\n`
         + `captura -> voz: ${latencias.length ? `${Math.round(mediana(latencias))} ms (p95 ${Math.round(p95(latencias))}, ${latencias.length} avisos)` : 'sin avisos aún'}\n`
-        + `registro: ${registro.length} avisos · ${navigator.onLine ? 'con red' : 'SIN RED'}`;
+        + `registro: ${registro.filter((e) => e.clase).length} avisos, ${registro.filter((e) => e.reportado_errado).length} reportados como errados`
+        + ` · ${navigator.onLine ? 'con red' : 'SIN RED'}`;
     }
     await pausa(0);
   }
@@ -471,6 +518,7 @@ async function empezar() {
   seguirPosicion();
   dialogo = BiliVoice.createDialog(entorno);
   await decir('Bili listo.', 'P1');
+  if (!navigator.onLine) { avisoDeRed(false); return; }   // sin red no se pregunta el destino: tocar la pantalla sigue sirviendo
   if (await primeraPosicion(5000)) await decir(await dondeEsta(), 'P1');
   dialogo.start();
 }

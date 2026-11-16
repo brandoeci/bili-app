@@ -60,8 +60,14 @@
     return cleanDestination(s);
   }
 
-  /* 'repeat' | 'newdest' | 'cancel' | 'where' | 'describe' | null */
+  /* "Ese aviso estuvo mal", "falsa alarma": la persona reporta un aviso equivocado (QA-8: tasa de avisos reportados como errados). */
+  function parseWrong(text) {
+    return /\b(estuvo mal|esta mal|estaba mal|equivocad\w*|se equivoco|error|falsa alarma|no habia nada|no hay nada)\b/.test(norm(text));
+  }
+
+  /* 'wrong' | 'repeat' | 'newdest' | 'cancel' | 'where' | 'describe' | null */
   function parseCommand(text) {
+    if (parseWrong(text)) return 'wrong';   // primero: "eso estuvo mal, para" no debe cancelar la ruta
     const n = norm(text);
     if (/\brep(it|et)/.test(n)) return 'repeat';
     if (/\b(nuevo destino|otro destino|cambiar|cambia el destino|nueva ruta|otra ruta)\b/.test(n)) return 'newdest';
@@ -141,7 +147,9 @@
     return e;
   }
 
-  const AYUDA = 'No entendí la orden. Puede decir: repetir, dónde estoy, describir, nuevo destino, o cancelar.';
+  const AYUDA = 'No entendí la orden. Puede decir: repetir, dónde estoy, describir, nuevo destino, cancelar, o ese aviso estuvo mal.';
+  const ANOTADO = 'Anotado: el último aviso quedó marcado como equivocado. Gracias.';
+  const NADA_QUE_MARCAR = 'Todavía no he dado ningún aviso de obstáculos.';
   const TOQUE = 'Toque la pantalla y dígame el destino.';
   const MENU = '¿Nuevo destino o apagar? Hable después del tono.';
 
@@ -153,6 +161,7 @@
    *   findRoute(destino, origenDicho?) -> Promise<{ok, ruta, speech} | {ok:false, message, needOrigin?}>
    *                                             needOrigin: no hay ubicación del GPS; Bili pregunta dónde está y vuelve a buscar
    *   startRoute(ruta), cancelRoute(), repeat(), describe()
+   *   reportWrong() -> boolean                  (opcional) marca el último aviso como equivocado; false si no hay ninguno
    *   whereText() -> Promise<string>            "Está en la Carrera 7, caminando hacia el norte. No tiene una ruta activa."
    * } */
   function createDialog(env) {
@@ -194,12 +203,19 @@
       return '';
     }
 
+    async function reportar() {
+      const ok = env.reportWrong ? env.reportWrong() : false;
+      await env.say(ok ? ANOTADO : NADA_QUE_MARCAR, 'P1');
+      return 'wrong';
+    }
+
     async function askDestination(prompt) {
       await env.say(prompt || '¿A dónde quiere ir? Hable después del tono. Si no quiere ir a ningún lugar, no diga nada.', 'P1');
       let r = await hear(T.askListenMs);
       for (let intento = 0; ; intento++) {
         if (r.error) { await env.say('No puedo escuchar ahora. ' + TOQUE, 'P1'); return 'error'; }
         if (r.silence) { await env.say('Entendido. Cuando quiera ir a un lugar, ' + TOQUE.toLowerCase(), 'P1'); return 'silence'; }
+        if (intento === 0 && parseWrong(r.text)) return reportar();   // sin ruta, un toque también sirve para reportar un aviso
         if (parseFree(r.text)) {
           await env.say('Entendido, camino libre. Le aviso de los obstáculos. Si quiere ir a un lugar, ' + TOQUE.toLowerCase(), 'P1');
           return 'free';
@@ -230,6 +246,7 @@
       if (r.error) { await env.say('No puedo escuchar ahora.', 'P1'); return 'error'; }
       if (r.silence) return 'silence';  // la persona tocó y no dijo nada: no se le habla de más
       switch (parseCommand(r.text)) {
+        case 'wrong': return reportar();
         case 'repeat': env.repeat(); return 'repeat';
         case 'where': await env.say(await env.whereText(), 'P1'); return 'where';
         case 'describe': env.describe(); return 'describe';
@@ -287,5 +304,5 @@
     };
   }
 
-  return { createDialog, createHold, parseYesNo, cleanDestination, cleanOrigin, parseCommand, parseMenu, parseFree, mensajeDeError, mensajeDeFalloDeRuta, errorDeRuta, speakable, norm, T };
+  return { createDialog, createHold, parseYesNo, cleanDestination, cleanOrigin, parseCommand, parseWrong, parseMenu, parseFree, mensajeDeError, mensajeDeFalloDeRuta, errorDeRuta, speakable, norm, T };
 });

@@ -200,6 +200,32 @@ test('durante la ruta: repetir, dónde estoy, describir', async () => {
   assert.ok(env.hablo.includes('Está en la Carrera 7. Faltan unos 300 metros.'));
 });
 
+test('"ese aviso estuvo mal": se reconoce, y gana sobre otras palabras de la frase', () => {
+  for (const t of ['ese aviso estuvo mal', 'eso está mal', 'se equivocó', 'falsa alarma', 'no había nada', 'error, para']) {
+    assert.equal(V.parseCommand(t), 'wrong', t);
+  }
+  assert.equal(V.parseCommand('repite'), 'repeat');
+  assert.equal(V.parseWrong('quiero ir al Museo del Oro'), false);
+});
+
+test('durante la ruta: "ese aviso estuvo mal" marca el último aviso y lo confirma', async () => {
+  const { env, d } = await conRutaActiva([dicho('ese aviso estuvo mal')]);
+  let marcados = 0;
+  env.reportWrong = () => { marcados++; return true; };
+  assert.equal(await d.onTap(), 'wrong');
+  assert.equal(marcados, 1);
+  assert.equal(d.navigating, true, 'la ruta sigue');
+  assert.ok(env.hablo[0].startsWith('Anotado'));
+});
+
+test('sin ruta: un toque también sirve para reportar, y no se busca ese texto como destino', async () => {
+  const env = entorno([dicho('eso estuvo mal')]);
+  env.reportWrong = () => false;   // todavía no hubo avisos
+  assert.equal(await V.createDialog(env).onTap(), 'wrong');
+  assert.ok(!env.log.some((l) => l.startsWith('find:')));
+  assert.equal(env.hablo.at(-1), 'Todavía no he dado ningún aviso de obstáculos.');
+});
+
 test('durante la ruta: cancelar', async () => {
   const { env, d } = await conRutaActiva([dicho('cancelar')]);
   assert.equal(await d.onTap(), 'cancel');

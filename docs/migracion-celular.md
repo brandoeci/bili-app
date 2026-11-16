@@ -113,6 +113,30 @@ gcloud secrets versions access latest --secret bili-clave     # la clave del enl
 
 El tope de 300 rutas al día vive en memoria: si la instancia se reinicia, se reinicia la cuenta.
 
+### Costo por minuto de recorrido (QA-4)
+
+La detección corre en el teléfono: no cuesta nada por minuto. Lo que cuesta es lo que pasa por la nube. Precios de lista de Google
+consultados el 15/11/2026 (Maps: Compute Routes Essentials y Geocoding, 10 000 llamadas gratis al mes cada una y después US$5 por mil;
+Cloud Run: 2 millones de peticiones y 180 000 vCPU-s gratis al mes; 1 GB de salida a internet gratis al mes).
+
+Recorrido típico supuesto de 20 minutos con ruta: 1 "dónde estoy" al empezar, 1 búsqueda del destino, 1 ruta, 2 recálculos y 2 "dónde
+estoy" a pedido = 4 llamadas de Geocoding + 3 de Routes.
+
+| Concepto | Por recorrido | Por minuto |
+|---|---|---|
+| Google Maps (7 llamadas × US$0,005) | US$0,035 | **US$0,0018** |
+| Cloud Run (7 peticiones de ~0,4 s) | ~US$0,0001 | ~US$0,000005 |
+| Detección en el teléfono | 0 | 0 |
+| Total, pasado el nivel gratuito | ~US$0,035 | **~US$0,002** |
+
+- **Dentro del nivel gratuito el costo es 0** hasta unos 2 500 recorridos al mes (el límite lo pone Geocoding: 10 000 / 4), unos 50 000
+  minutos caminando.
+- Una sola vez por teléfono nuevo: bajar los modelos (48 MB desde Cloud Run) ≈ US$0,006 de salida a internet (el primer GB del mes es gratis,
+  ~20 instalaciones). ONNX Runtime viene de jsdelivr y no cuesta.
+- Fijo: guardar la imagen en Artifact Registry, centavos al mes.
+- Lo que más mueve la cifra son los recálculos (salirse de la ruta) y los "dónde estoy". Para medirlo de verdad: contar en los registros
+  de Cloud Run las peticiones a `/v1/rutas` y `/v1/ubicacion` y dividir por los minutos de los registros de los teléfonos.
+
 ## Velocidad medida en el teléfono (fase 1b)
 
 `/onnx-spike` (ONNX_SPIKE=1) corre en el teléfono lo mismo que correrá la app: cámara, letterbox, modelos, decodificación, seguimiento,
